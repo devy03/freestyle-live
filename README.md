@@ -18,6 +18,8 @@ Everything runs locally: the lyrics come from a small language model in [Ollama]
 - **The crowd picks the words.** Anyone listening can add a word. Words wait in line (up to 5), and each visitor can send one every 8 seconds.
 - **You can share it with a link.** One double-click makes a public link through a free Cloudflare tunnel.
 
+- **Run the show from the website.** As the host, you can change the lyric model, the rapper's persona, the language, how wild the lyrics get, the tone, the rhymes, how often the word comes up, and how many verses play before each hook, all live. Sliders for energy, mood, flow, production, and tempo shape the sound, with a preview of exactly what the music engine will hear, then one click makes a new beat in that style. Only the host can change these; visitors see them read-only.
+- **The crowd can react.** Fire, applause, laugh, and 💯 buttons float up on everyone's screen.
 - **Make it yours.** Four themes (Studio, Daylight, Midnight, High contrast) or match your device, lyric size, a karaoke-style sweep across each line, a tape or spectrum visualizer, and reduced motion. Settings are saved in your browser.
 - **It reacts.** The room light pulses with the kick drum, the on-air light glows with the vocals, there's a countdown to the next verse, and you get a heads-up when your word is about to land.
 
@@ -25,9 +27,13 @@ Everything runs locally: the lyrics come from a small language model in [Ollama]
 |---|---|
 | ![Landing page](docs/screenshots/landing.png) | ![A verse playing in the Studio theme](docs/screenshots/live-studio.png) |
 
-| Settings | On a phone |
+| Your view settings | On a phone |
 |---|---|
 | ![Settings panel](docs/screenshots/settings.png) | <img src="docs/screenshots/phone.png" alt="Phone layout" width="300"> |
+
+### The show settings (host only)
+
+<img src="docs/screenshots/show-settings.png" alt="The show settings: sound sliders, caption preview, and crowd limits" width="720">
 
 ### Themes
 
@@ -71,17 +77,20 @@ To let other people in, double-click **`share_online.bat`** and send them the `h
 
 ## Change how it sounds
 
-Everything you'd want to tweak is at the top of `freestyle_live.py`:
+Open the site on the PC running it, click **Settings**, then **The show**. Changes save as you make them, into `studio_settings.json`, so they survive a restart.
 
-| Setting | What it changes |
-|---|---|
-| `CAPTION` | The style of the music. It starts as a polished studio rap track at 90 BPM. |
-| `BPM`, `KEY` | Tempo and key. Keep the BPM in `CAPTION` matching. |
-| `PERSONA` | Who the rapper is (where they're from, their attitude). |
-| `OLLAMA_MODEL` | Which lyric model writes the bars. `gemma3:4b` is the default because it fits next to the music model on a 12 GB card. |
-| `BARS_PER_PIECE` | How long each verse is. |
-| `VERSES_BETWEEN_HOOKS` | How many verses play before each hook. |
-| `BANNED` | Phrases the lyric filter throws out, to keep the bars from getting corny. |
+| Setting | What it changes | When it takes effect |
+|---|---|---|
+| Persona | Who the rapper is. Leave it empty for the default. | Next verse |
+| Lyric model | Which Ollama model writes the bars (any model you've pulled). `gemma3:4b` fits next to the music engine on a 12 GB card. | Next verse |
+| Language | The language of the lyrics and the vocals | Next verse |
+| Creativity, tone, rhymes, word use | How the bars are written | Next verse |
+| Verses before each hook | Song structure | Next verse |
+| Keep rapping between words | Off means the beat plays alone until someone sends a word | Right away |
+| Style, voice, energy, mood, flow, production, tempo, extra tags | The sound of the music | When you click **Make a new beat** |
+| Crowd limits | Wait between words per person, and how many words can be in line | Right away |
+
+Settings that only matter for code live at the top of `freestyle_live.py`, like `BANNED` (phrases the lyric filter throws out) and `DEFAULT_PERSONA`.
 
 ## How it works
 

@@ -141,6 +141,16 @@ Renamed the project to **Freestyle AI** and made the site feel more alive.
 
 ![Themes](screenshots/themes.png)
 
+## v18: Running the show from the website
+
+- **Host controls** in a new "The show" tab: lyric model (any model in Ollama), persona (empty means the default), language, creativity, tone, rhyme density, how often the word comes up, verses before each hook, and whether it keeps rapping between words. These apply to the next verse.
+- **Sound sliders** for style, voice, energy, mood, flow, production, and tempo, with a live preview of the exact caption the music engine will get. **Make a new beat** rebuilds the loop in the new sound, and every listener's browser switches over on its own.
+- **Crowd controls** for the wait between words and the size of the line. Only the host can change any of this; the server checks.
+- **More reactive:** crowd reactions that float up on everyone's screen, word ideas to tap, verses that slide in line by line, a bar counter that pulses on each bar, a listener count that pops when people join, and a chip showing the current sound.
+- A beat/vocal balance slider for each listener.
+
+![The show settings](screenshots/show-settings.png)
+
 ## What I'd try next
 
 - Run on a bigger GPU (Qwen3 8B or larger for lyrics, ACE-Step XL for sound) through UIC's research cluster or a free notebook GPU, to see how much better it gets

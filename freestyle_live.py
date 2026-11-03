@@ -24,33 +24,38 @@ from demucs.apply import apply_model
 
 # ---------------- Settings (change these freely) ----------------
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-OLLAMA_MODEL = "gemma3:4b"    # options: "gemma3:4b" (reliable), "qwen3:8b" (best lyrics but too big for 12GB with everything else)
+OLLAMA_MODEL = "gemma3:4b"    # default lyric model; change it live from the website's Studio settings
 LYRIC_GPU_LAYERS = 99         # 99 = whole lyric model on the GPU (fastest). Lower it only if the music gets slow
-PERSONA = "You're from Chicago, but only mention it when it really fits."   # who the rapper is
+DEFAULT_PERSONA = "You're from Chicago, but only mention it when it really fits."   # used when the persona box is empty
 ACE_URL = "http://127.0.0.1:8001"
 
-CAPTION = ("hip hop, polished studio rap song, male rapper, confident smooth flow, clear upfront vocals, "
-           "punchy drums, deep bass, soulful piano loop, professionally mixed and mastered, "
-           "rap vocals throughout, 90 bpm")
-BPM = 90
+BPM = 90                    # starting tempo; the Studio settings can change it with a new beat
 KEY = "A Minor"
 SEED = 1234
 BARS_PER_PIECE = 8          # 8 bars = 8 lines; also the length of the looping beat
 EXTRA_BARS = 4              # made and thrown away so the song never wraps up early
-VERSES_BETWEEN_HOOKS = 2    # after a new word: verse, HOOK, verse, verse, HOOK ...
 USE_VOICE_REFERENCE = True  # keep the same rapper by referencing the first piece
 VOCAL_VOLUME = 1.0
 BEAT_VOLUME = 0.9
 SAMPLE_RATE = 48000
 # ----------------------------------------------------------------
 
-BAR_SECONDS = 4 * 60 / BPM
-BAR_SAMPLES = int(round(BAR_SECONDS * SAMPLE_RATE))
-PIECE_SECONDS = BARS_PER_PIECE * BAR_SECONDS
-EXTRA_SECONDS = EXTRA_BARS * BAR_SECONDS
-PIECE_SAMPLES = BARS_PER_PIECE * BAR_SAMPLES
 TOTAL_LINES = BARS_PER_PIECE + EXTRA_BARS
-BEAT_SAMPLES = int(round(60 / BPM * SAMPLE_RATE))
+
+
+def set_bpm(bpm):
+    # tempo-dependent sizes; changed only when a new beat starts
+    global BPM, BAR_SECONDS, BAR_SAMPLES, PIECE_SECONDS, EXTRA_SECONDS, PIECE_SAMPLES, BEAT_SAMPLES
+    BPM = int(bpm)
+    BAR_SECONDS = 4 * 60 / BPM
+    BAR_SAMPLES = int(round(BAR_SECONDS * SAMPLE_RATE))
+    PIECE_SECONDS = BARS_PER_PIECE * BAR_SECONDS
+    EXTRA_SECONDS = EXTRA_BARS * BAR_SECONDS
+    PIECE_SAMPLES = BARS_PER_PIECE * BAR_SAMPLES
+    BEAT_SAMPLES = int(round(60 / BPM * SAMPLE_RATE))
+
+
+set_bpm(BPM)
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENGINE_AUDIO_FOLDER = os.path.join(HERE, "ACE-Step-1.5", ".cache", "acestep", "tmp", "api_audio")
 LOG_PATH = os.path.join(HERE, "freestyle_log.txt")
@@ -70,6 +75,172 @@ hooks = {}
 listeners = {}      # listener id -> last time they checked in
 last_word_by_ip = {}
 ui = {"making": None, "timing": "", "words": []}
+reactions = []      # recent crowd reactions: {"id", "e", "t"}
+last_react_by_ip = {}
+beat_version = 0
+reset_requested = False
+
+
+# ======================= STUDIO SETTINGS (editable on the website by the host) =======================
+
+STUDIO_FILE = os.path.join(HERE, "studio_settings.json")
+GENRES = {
+    "polished": ("Polished rap", "polished studio hip hop, punchy drums, deep bass, soulful piano loop"),
+    "boombap": ("Boom bap", "boom bap hip hop, dusty drums, vinyl samples, jazzy chops"),
+    "trap": ("Trap", "trap, booming 808 bass, crisp rolling hi-hats"),
+    "lofi": ("Lo-fi", "lo-fi hip hop, mellow keys, soft drums, vinyl crackle"),
+    "drill": ("Drill", "drill, sliding 808s, dark piano, sharp hi-hats"),
+    "rnb": ("R&B", "r&b, smooth sung vocals, warm keys, laid back groove"),
+}
+LANGUAGES = {"en": "English", "es": "Spanish", "fr": "French", "pt": "Portuguese", "de": "German",
+             "hi": "Hindi", "ja": "Japanese", "ko": "Korean"}
+TONES = {
+    "mixed": "Mix punchlines, stories, and brags.",
+    "story": "Tell a story with a beginning, a turn, and a payoff.",
+    "brag": "Confident braggadocio - clever flexes, no generic boasts.",
+    "funny": "Funny - jokes, absurd images, playful wordplay.",
+    "deep": "Reflective and heartfelt - honest, specific feelings.",
+}
+RHYMES = {
+    "loose": "Loose, conversational rhymes. Slant rhymes are fine.",
+    "couplets": "Rhyme in couplets (lines 1+2, 3+4, ...), with internal rhymes where they fit.",
+    "multis": "Dense multi-syllable rhymes and internal rhymes in every line, rhyming in couplets.",
+}
+WORD_USE = {
+    "subtle": "Say \"{w}\" once, where it hits hardest.",
+    "natural": "Say \"{w}\" once or twice, anywhere in a line.",
+    "heavy": "Say \"{w}\" at least three times, and end at least one bar on it.",
+}
+DEFAULT_STUDIO = {
+    "model": OLLAMA_MODEL, "persona": "",
+    "genre": "polished", "voice": "male", "energy": 60, "mood": 45, "flow": 50, "polish": 85,
+    "bpm": BPM, "extra_tags": "",
+    "creativity": 100, "word_use": "natural", "rhyme": "couplets", "tone": "mixed", "language": "en",
+    "verses_between_hooks": 2, "keep_rapping": True,
+    "cooldown": 8, "queue_max": 5,
+}
+STYLE_KEYS = ("genre", "voice", "energy", "mood", "flow", "polish", "bpm", "extra_tags")
+
+
+def clamp(v, lo, hi, default):
+    try:
+        v = int(float(v))
+    except Exception:
+        return default
+    return max(lo, min(hi, v))
+
+
+def clean_studio(data, base):
+    out = dict(base)
+    if "model" in data and isinstance(data["model"], str) and re.match(r"^[\w.\-:/]{1,80}$", data["model"]):
+        out["model"] = data["model"]
+    if "persona" in data:
+        out["persona"] = " ".join(str(data["persona"]).split())[:300]
+    if data.get("genre") in GENRES:
+        out["genre"] = data["genre"]
+    if data.get("voice") in ("male", "female"):
+        out["voice"] = data["voice"]
+    for k in ("energy", "mood", "flow", "polish"):
+        if k in data:
+            out[k] = clamp(data[k], 0, 100, base[k])
+    if "bpm" in data:
+        out["bpm"] = clamp(data["bpm"], 70, 150, base["bpm"])
+    if "extra_tags" in data:
+        out["extra_tags"] = re.sub(r"[^A-Za-z0-9 ,&'\-]", "", str(data["extra_tags"]))[:120]
+    if "creativity" in data:
+        out["creativity"] = clamp(data["creativity"], 50, 140, base["creativity"])
+    if data.get("word_use") in WORD_USE:
+        out["word_use"] = data["word_use"]
+    if data.get("rhyme") in RHYMES:
+        out["rhyme"] = data["rhyme"]
+    if data.get("tone") in TONES:
+        out["tone"] = data["tone"]
+    if data.get("language") in LANGUAGES:
+        out["language"] = data["language"]
+    if "verses_between_hooks" in data:
+        out["verses_between_hooks"] = clamp(data["verses_between_hooks"], 1, 4, base["verses_between_hooks"])
+    if "keep_rapping" in data:
+        out["keep_rapping"] = bool(data["keep_rapping"])
+    if "cooldown" in data:
+        out["cooldown"] = clamp(data["cooldown"], 0, 60, base["cooldown"])
+    if "queue_max" in data:
+        out["queue_max"] = clamp(data["queue_max"], 1, 10, base["queue_max"])
+    return out
+
+
+def load_studio():
+    try:
+        with open(STUDIO_FILE, encoding="utf-8") as f:
+            return clean_studio(json.load(f), DEFAULT_STUDIO)
+    except Exception:
+        return dict(DEFAULT_STUDIO)
+
+
+def save_studio():
+    try:
+        with open(STUDIO_FILE, "w", encoding="utf-8") as f:
+            json.dump(studio, f, indent=2)
+    except Exception as e:
+        print("(couldn't save studio settings: " + str(e) + ")")
+
+
+studio = load_studio()
+active_style = {k: studio[k] for k in STYLE_KEYS}   # the sound the current beat was made with
+
+
+def persona():
+    return studio["persona"].strip() or DEFAULT_PERSONA
+
+
+def build_caption(s):
+    parts = [GENRES[s["genre"]][1]]
+    sung = s["genre"] == "rnb"
+    parts.append(("female " if s["voice"] == "female" else "male ") + ("singer" if sung else "rapper"))
+    e, m, f, p = s["energy"], s["mood"], s["flow"], s["polish"]
+    parts.append("laid back, relaxed" if e < 35 else ("high energy, hard-hitting, aggressive" if e > 65 else "confident"))
+    if m < 35:
+        parts.append("dark, moody")
+    elif m > 65:
+        parts.append("uplifting, bright, feel-good")
+    parts.append("smooth melodic flow" if f < 35 else ("fast rapid-fire flow" if f > 65 else "steady flow"))
+    parts.append("raw, gritty, underground" if p < 35 else ("professionally mixed and mastered" if p > 65 else "clean mix"))
+    if s["extra_tags"].strip():
+        parts.append(s["extra_tags"].strip())
+    parts.append("clear upfront vocals, " + ("vocals" if sung else "rap vocals") + " throughout, " + str(s["bpm"]) + " bpm")
+    return ", ".join(parts)
+
+
+def key_for(s):
+    return "C Major" if s["mood"] > 65 else ("E Minor" if s["mood"] < 35 else "A Minor")
+
+
+def style_summary(s):
+    words = [GENRES[s["genre"]][0]]
+    words.append("chill" if s["energy"] < 35 else ("hype" if s["energy"] > 65 else "steady"))
+    if s["mood"] < 35:
+        words.append("dark")
+    elif s["mood"] > 65:
+        words.append("bright")
+    words.append(str(s["bpm"]) + " BPM")
+    return " · ".join(words)
+
+
+_models_cache = {"t": 0, "list": []}
+
+
+def ollama_models():
+    if time.time() - _models_cache["t"] < 15:
+        return _models_cache["list"]
+    names = []
+    try:
+        tags = requests.get(OLLAMA_URL.replace("/api/generate", "/api/tags"), timeout=5).json()
+        for m in tags.get("models", []):
+            names.append(m.get("name", ""))
+    except Exception:
+        pass
+    names = sorted(n for n in names if n)
+    _models_cache.update({"t": time.time(), "list": names})
+    return names
 
 # ======================= small helpers =======================
 
@@ -118,13 +289,13 @@ def loudness(audio):
 
 def ask_llama(prompt):
     body = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt + ("\n/no_think" if "qwen3" in OLLAMA_MODEL else ""),
+        "model": studio["model"],
+        "prompt": prompt + ("\n/no_think" if "qwen3" in studio["model"] else ""),
         "stream": False,
         "keep_alive": "1h",
-        "options": {"num_gpu": LYRIC_GPU_LAYERS, "temperature": 1.0, "top_p": 0.95, "repeat_penalty": 1.15, "num_predict": 350, "num_ctx": 2048},
+        "options": {"num_gpu": LYRIC_GPU_LAYERS, "temperature": studio["creativity"] / 100, "top_p": 0.95, "repeat_penalty": 1.15, "num_predict": 350, "num_ctx": 2048},
     }
-    if "qwen3" in OLLAMA_MODEL:
+    if "qwen3" in studio["model"]:
         body["think"] = False      # qwen3 "thinks" out loud by default - turn that off
     reply = requests.post(OLLAMA_URL, json=body, timeout=30)
     text = reply.json()["response"]
@@ -196,6 +367,12 @@ def clean_lines(lines):
     return remove_repeats(kept)
 
 
+def language_rule():
+    if studio["language"] == "en":
+        return ""
+    return "Write every bar in " + LANGUAGES[studio["language"]] + ".\n"
+
+
 def write_verse(word):
     n = str(TOTAL_LINES)
     if recent_lines:
@@ -205,17 +382,18 @@ def write_verse(word):
 
     if word:
         task = ("New topic: \"" + word + "\". Flip to it with a clever transition and write the next " + n +
-                " bars ABOUT " + word + ". Say \"" + word + "\" once or twice, anywhere in a line.")
+                " bars ABOUT " + word + ". " + WORD_USE[studio["word_use"]].replace("{w}", word))
     else:
         task = ("Topic: \"" + str(topic) + "\". Write the next " + n +
                 " bars - a new angle on it: a punchline, a twist, a brag, a story beat.")
 
     prompt = (
-        "You are an elite rapper writing original bars. Rap, not poetry. " + PERSONA + "\n\n"
+        "You are an elite rapper writing original bars. Rap, not poetry. " + persona() + "\n\n"
         + said + "\n\n" + task + "\n\n"
         "What makes it hard:\n"
-        "- Punchlines, wordplay, double meanings, attitude, humor.\n"
-        "- Multi-syllable and internal rhymes. Rhyme in couplets.\n"
+        "- " + TONES[studio["tone"]] + "\n"
+        "- Punchlines, wordplay, double meanings, attitude.\n"
+        "- " + RHYMES[studio["rhyme"]] + "\n"
         "- Concrete, surprising images - say something nobody has heard a thousand times.\n"
         "- Talk like a confident person, not a greeting card. No flowery filler words.\n"
         "- Short bars: 7 to 11 syllables.\n"
@@ -223,6 +401,7 @@ def write_verse(word):
         "- Keep it fit for a public stream: no slurs, no hate, no sexual content.\n\n"
         "Style example (topic: alarm clock) - copy the STYLE, never these lines:\n"
         + "\n".join(STYLE_EXAMPLE) + "\n\n"
+        + language_rule() +
         "Output ONLY the " + n + " bars. No title, no labels, no notes."
     )
 
@@ -239,14 +418,16 @@ def write_verse(word):
 
 
 def get_hook(about):
-    if about in hooks:
-        return hooks[about]
-    prompt = ("You write hit rap hooks. Write a 4-line hook about \"" + str(about) + "\".\n"
+    key = (str(about).lower(), studio["language"], studio["tone"])
+    if key in hooks:
+        return hooks[key]
+    prompt = ("You write hit rap hooks. Write a 4-line hook about \"" + str(about) + "\". " + persona() + "\n"
               "- Say \"" + str(about) + "\" at least twice.\n"
               "- Punchy, chantable, with attitude - something a crowd would yell back.\n"
               "- 5 to 8 syllables per line. One clever idea, not a list of adjectives.\n"
               "- No slurs, no hate, no sexual content.\n"
               "- Don't mention any city. No \"can't be beat\", \"feel the heat\", \"shining bright\".\n"
+              + language_rule() +
               "Output ONLY the 4 lines. No title, no labels, no notes.")
     lines = clean_lines(ask_llama(prompt))[:4]
     if len(lines) < 4:
@@ -255,7 +436,7 @@ def get_hook(about):
                 "Can't shake " + str(about) + " tonight", "That's " + str(about) + ", all right"]
     while len(lines) < 4:
         lines.append(fallback[len(lines)])
-    hooks[about] = lines
+    hooks[key] = lines
     return lines
 
 
@@ -378,9 +559,9 @@ def wait_for_result(task_id):
 
 def make_music(lyrics, seed):
     fields = {
-        "prompt": CAPTION, "lyrics": lyrics, "thinking": "false",
+        "prompt": build_caption(active_style), "lyrics": lyrics, "thinking": "false",
         "use_cot_caption": "false", "use_cot_language": "false",
-        "vocal_language": "en", "bpm": str(BPM), "key_scale": KEY, "time_signature": "4",
+        "vocal_language": studio["language"], "bpm": str(BPM), "key_scale": key_for(active_style), "time_signature": "4",
         "audio_duration": str(PIECE_SECONDS + EXTRA_SECONDS),
         "batch_size": "1", "inference_steps": "8",
         "use_random_seed": "false", "seed": str(seed), "audio_format": "wav",
@@ -401,8 +582,8 @@ def build_piece(previous, word):
 
     if word or previous is None:
         section = "Verse"
-        verses = VERSES_BETWEEN_HOOKS if word else 1
-    elif previous["verses"] >= VERSES_BETWEEN_HOOKS:
+        verses = studio["verses_between_hooks"] if word else 1
+    elif previous["verses"] >= studio["verses_between_hooks"]:
         section = "Chorus"
         verses = 0
     else:
@@ -490,9 +671,32 @@ def listening_now():
     return len(listeners)
 
 
+def do_reset():
+    # start over with a new beat in the current Studio sound
+    global beat_loop, anchor, beat_wav, t0, beat_version, reset_requested, active_style, recent_lines
+    with lock:
+        beat_loop = None
+        anchor = None
+        beat_wav = None
+        t0 = None
+        timeline.clear()
+        gen_times.clear()
+        hooks.clear()
+        active_style = {k: studio[k] for k in STYLE_KEYS}
+        set_bpm(active_style["bpm"])
+        beat_version += 1
+        reset_requested = False
+        if topic and not pending_words:
+            pending_words.insert(0, topic)
+    print(">> new beat: " + style_summary(active_style))
+    write_log("NEW BEAT " + build_caption(active_style))
+
+
 def generator():
     global topic, t0, beat_wav
     while running:
+        if reset_requested:
+            do_reset()
         job = None
         word = None
         with lock:
@@ -503,7 +707,7 @@ def generator():
                 word = pending_words.pop(0)
                 topic = word
                 job = "word"
-            elif people > 0 and topic is not None and beat_loop is not None:
+            elif people > 0 and topic is not None and beat_loop is not None and studio["keep_rapping"]:
                 ends = latest["start"] + latest["dur"] if latest else now
                 if ends - now < expected_gen_time() + 5:
                     job = "filler"
@@ -612,15 +816,20 @@ class Handler(BaseHTTPRequestHandler):
                                        "lines": p["lines"], "section": p["section"], "word": p["word"]})
                 state = {
                     "now": now, "t0": t0, "bar": BAR_SECONDS, "loop": len(beat_loop) / SAMPLE_RATE if beat_loop is not None else 0,
-                    "beat": "/audio/beat.wav" if beat_wav else None,
+                    "beat": ("/audio/beat.wav?v=" + str(beat_version)) if beat_wav else None,
                     "pieces": pieces, "queue": list(pending_words), "making": ui["making"],
                     "topic": topic, "words": ui["words"][-10:], "listeners": listening_now(),
                     "timing": ui["timing"], "host": self.is_host(),
+                    "beat_version": beat_version, "style": style_summary(active_style),
+                    "reactions": [r for r in reactions if now - r["t"] < 8],
+                    "keep_rapping": studio["keep_rapping"], "cooldown": studio["cooldown"],
                 }
             self.send_json(200, state)
         elif path.path in ("/fonts/BigShouldersDisplay.ttf", "/fonts/BigShouldersText.ttf"):
             with open(os.path.join(HERE, "fonts", os.path.basename(path.path)), "rb") as f:
                 self.send(200, f.read(), "font/ttf", cache=True)
+        elif path.path == "/api/config":
+            self.send_json(200, self.config_payload())
         elif path.path == "/audio/beat.wav" and beat_wav:
             self.send(200, beat_wav, "audio/wav", cache=True)
         elif path.path.startswith("/audio/") and path.path.endswith(".wav"):
@@ -637,8 +846,20 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_json(404, {"error": "Not found"})
 
+    def config_payload(self):
+        with lock:
+            pending = any(studio[k] != active_style[k] for k in STYLE_KEYS)
+            return {
+                "host": self.is_host(), "studio": studio, "default_persona": DEFAULT_PERSONA,
+                "models": ollama_models() if self.is_host() else [studio["model"]],
+                "genres": {k: v[0] for k, v in GENRES.items()}, "languages": LANGUAGES,
+                "caption_preview": build_caption(studio), "caption_active": build_caption(active_style),
+                "style_preview": style_summary(studio), "style_active": style_summary(active_style),
+                "style_pending": pending,
+            }
+
     def do_POST(self):
-        global running
+        global running, reset_requested
         length = min(int(self.headers.get("Content-Length", 0) or 0), 2000)
         body = self.rfile.read(length).decode("utf-8", "ignore") if length else "{}"
         try:
@@ -658,10 +879,11 @@ class Handler(BaseHTTPRequestHandler):
             ip = self.visitor_ip()
             now = time.time()
             with lock:
-                if not self.is_host() and now - last_word_by_ip.get(ip, 0) < 8:
-                    self.send_json(429, {"error": "One word every 8 seconds. Hang tight."})
+                wait = studio["cooldown"]
+                if not self.is_host() and now - last_word_by_ip.get(ip, 0) < wait:
+                    self.send_json(429, {"error": "One word every " + str(wait) + " seconds. Hang tight."})
                     return
-                if len(pending_words) >= 5:
+                if len(pending_words) >= studio["queue_max"]:
                     self.send_json(429, {"error": "The queue is full. Try again in a moment."})
                     return
                 last_word_by_ip[ip] = now
@@ -669,6 +891,41 @@ class Handler(BaseHTTPRequestHandler):
                 ui["words"] = (ui["words"] + [w])[-20:]
             print(">> word: " + w)
             self.send_json(200, {"ok": True, "position": len(pending_words)})
+        elif self.path.startswith("/api/react"):
+            kind = str(data.get("e", ""))
+            if kind not in ("fire", "clap", "laugh", "hundred"):
+                self.send_json(400, {"error": "Unknown reaction."})
+                return
+            ip = self.visitor_ip()
+            now = time.time()
+            with lock:
+                if now - last_react_by_ip.get(ip, 0) < 0.6:
+                    self.send_json(429, {"error": "Slow down a little."})
+                    return
+                last_react_by_ip[ip] = now
+                reactions.append({"id": uuid.uuid4().hex[:8], "e": kind, "t": now})
+                reactions[:] = [r for r in reactions if now - r["t"] < 30][-80:]
+            self.send_json(200, {"ok": True})
+        elif self.path.startswith("/api/config"):
+            if not self.is_host():
+                self.send_json(403, {"error": "Only the host can change the studio settings."})
+                return
+            with lock:
+                old_model = studio["model"]
+                updated = clean_studio(data, studio)
+                studio.clear()
+                studio.update(updated)
+                save_studio()
+            if studio["model"] != old_model:
+                print(">> lyric model: " + studio["model"])
+                threading.Thread(target=unload_other_ollama_models, daemon=True).start()
+            self.send_json(200, self.config_payload())
+        elif self.path.startswith("/api/newbeat"):
+            if not self.is_host():
+                self.send_json(403, {"error": "Only the host can start a new beat."})
+                return
+            reset_requested = True
+            self.send_json(200, {"ok": True})
         elif self.path.startswith("/api/quit") and self.is_host():
             running = False
             self.send_json(200, {"ok": True})
@@ -681,14 +938,15 @@ def unload_other_ollama_models():
         loaded = requests.get(OLLAMA_URL.replace("/api/generate", "/api/ps"), timeout=5).json().get("models", [])
         for m in loaded:
             name = m.get("name", "")
-            if name and name != OLLAMA_MODEL and name.split(":")[0] + ":" + name.split(":")[-1] != OLLAMA_MODEL:
+            if name and name != studio["model"]:
                 requests.post(OLLAMA_URL, json={"model": name, "keep_alive": 0}, timeout=30)
                 print("Unloaded old lyric model from GPU: " + name)
     except Exception as e:
         print("(couldn't check Ollama models: " + str(e) + ")")
 
 
-print("=== Freestyle AI (website) - lyrics by " + OLLAMA_MODEL + " ===")
+print("=== Freestyle AI (website) - lyrics by " + studio["model"] + " ===")
+set_bpm(active_style["bpm"])
 unload_other_ollama_models()
 clean_engine_folder()
 open(LOG_PATH, "w").close()

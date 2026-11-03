@@ -308,6 +308,84 @@
   .keys { margin: 18px 0 0; color: var(--dim); font-size: 15px; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; }
   .keys kbd { font: 700 14px var(--body); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; justify-self: start; }
 
+  /* ---------- tabs and show controls ---------- */
+  .tabs { display: flex; gap: 6px; padding: 4px 24px 0; border-bottom: 1px solid var(--line); }
+  .tab {
+    background: none; border: none; padding: 10px 12px 12px; margin-bottom: -1px;
+    font: 700 20px/1 var(--display); color: var(--dim); border-bottom: 3px solid transparent;
+  }
+  .tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  .panel[hidden] { display: none; }
+  .lock {
+    margin: 16px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--surface);
+    color: var(--dim); font-size: 15px;
+  }
+  .ctl { display: grid; gap: 6px; margin: 4px 0 14px; }
+  .ctl-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-weight: 600; }
+  .ctl-top output { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 700; }
+  .ends { display: flex; justify-content: space-between; font-size: 14px; color: var(--dim); margin-top: -2px; }
+  .sheet input[type=range] { width: 100%; }
+  .sheet select, .sheet textarea, .sheet input[type=text] {
+    width: 100%; background: var(--surface); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: 500 16px/1.35 var(--body);
+  }
+  .sheet textarea { min-height: 76px; resize: vertical; }
+  .sheet select:focus, .sheet textarea:focus, .sheet input[type=text]:focus { outline: 3px solid var(--accent); outline-offset: 1px; }
+  .caption {
+    margin: 4px 0 12px; padding: 12px 14px; border-radius: 12px;
+    background: var(--surface); border: 1px dashed var(--line);
+    font-size: 15px; color: var(--dim); line-height: 1.4;
+  }
+  .caption b { color: var(--text); font-weight: 700; }
+  .caption.changed { border-color: var(--accent); }
+  .primary {
+    width: 100%; margin-top: 4px;
+    background: var(--accent); color: var(--on-accent); border: none; border-radius: 999px;
+    padding: 12px 18px; font: 800 20px/1 var(--display);
+    transition: transform .12s, opacity .2s;
+  }
+  .primary:active { transform: scale(.98); }
+  .primary:disabled { opacity: .4; cursor: default; }
+  .saved { min-height: 22px; margin: 8px 0 0; font-size: 14px; color: var(--dim); }
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 600; margin: 4px 0 6px; }
+  .switch input { width: 46px; height: 26px; accent-color: var(--accent); }
+  .sheet fieldset:disabled { opacity: .55; }
+
+  /* ---------- reactions ---------- */
+  .reacts { display: flex; gap: 6px; }
+  .react {
+    width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
+    font-size: 21px; line-height: 1; display: grid; place-items: center;
+    transition: transform .12s, border-color .15s;
+  }
+  .react:hover { border-color: var(--accent); }
+  .react:active { transform: scale(.86); }
+  .floaters { position: fixed; inset: 0; pointer-events: none; z-index: 20; overflow: hidden; }
+  .floater {
+    position: absolute; bottom: 120px; font-size: 34px;
+    animation: rise 2.6s cubic-bezier(.2,.6,.3,1) forwards;
+  }
+  @keyframes rise {
+    0% { transform: translate(0, 0) scale(.6); opacity: 0; }
+    12% { opacity: 1; transform: translate(0, -30px) scale(1.15); }
+    100% { transform: translate(var(--dx, 0px), -62vh) scale(.9); opacity: 0; }
+  }
+  .style-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 15px; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px;
+  }
+  .style-chip b { color: var(--text); font-weight: 600; }
+
+  /* ---------- small reactive touches ---------- */
+  .lyr-line.enter { animation: line-in .45s cubic-bezier(.2,.75,.2,1) both; animation-delay: calc(var(--i) * 45ms); }
+  @keyframes line-in { from { opacity: 0; transform: translateY(14px); } }
+  .bars.tick i.on:last-of-type, .bars i.pulse { animation: bar-pulse .35s ease-out; }
+  @keyframes bar-pulse { 40% { transform: scaleY(1.9); } }
+  .pop { animation: pop .4s ease-out; }
+  @keyframes pop { 40% { transform: scale(1.12); } }
+  .ideas { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 34px; }
+  .ideas .chip { border-style: dashed; }
+
   /* ---------- small screens ---------- */
   @media (max-width: 900px) {
     .app {
@@ -322,6 +400,9 @@
     .lyrics { margin: 0 16px; }
     .lyr-top, .lyr-track { padding-left: 22px; padding-right: 22px; }
     .lane { grid-template-columns: 1fr; padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); position: sticky; bottom: 0; }
+    .controls { justify-content: space-between; }
+    .react { width: 40px; height: 40px; font-size: 19px; }
+    .floater { bottom: 160px; }
     .legend { display: none; }
     .tape { height: 56px; margin-top: 4px; }
     .send { padding: 10px 16px; font-size: 19px; }
@@ -339,12 +420,14 @@
 <div class="glow" aria-hidden="true"></div>
 <div class="banner" id="banner" role="status"></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="floaters" id="floaters" aria-hidden="true"></div>
 
 <div class="app" id="app">
   <header>
     <h1 class="mark">Freestyle<span class="ai">AI</span></h1>
     <span class="onair" id="onair"><span class="bulb"></span><span id="onairText">Off air</span></span>
     <span class="grow"></span>
+    <span class="style-chip" id="styleChip" hidden title="The sound of the current beat"><b id="styleText"></b></span>
     <span class="people" id="people" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.8a3.4 3.4 0 0 1 0 6.4M18.6 14.8c1.6.8 2.6 2.5 3 5.2"/></svg>
       <span id="peopleText"></span>
@@ -372,6 +455,7 @@
         <button class="send" id="send" type="submit">Drop it</button>
       </div>
       <p class="note" id="note" aria-live="polite">Press <kbd>Enter</kbd>. It lands on the next bar.</p>
+      <div class="ideas" id="ideas"></div>
     </form>
 
     <div class="now">
@@ -400,6 +484,12 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path id="waves" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
       </button>
       <input type="range" id="vol" min="0" max="1" step="0.01" value="0.9" aria-label="Volume">
+      <div class="reacts" role="group" aria-label="React">
+        <button class="react" type="button" data-e="fire" aria-label="Fire">🔥</button>
+        <button class="react" type="button" data-e="clap" aria-label="Applause">👏</button>
+        <button class="react" type="button" data-e="laugh" aria-label="Laugh">😂</button>
+        <button class="react" type="button" data-e="hundred" aria-label="One hundred">💯</button>
+      </div>
     </div>
     <div class="tape">
       <div class="legend" id="legend"><span><i style="background:var(--accent)"></i>Vocals</span><span><i style="background:var(--beat)"></i>Beat</span></div>
@@ -416,7 +506,11 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
     </button>
   </div>
-  <div class="sheet-body">
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tabView" aria-controls="panelView" aria-selected="true" type="button">Your view</button>
+    <button class="tab" role="tab" id="tabShow" aria-controls="panelShow" aria-selected="false" type="button">The show</button>
+  </div>
+  <div class="sheet-body panel" id="panelView" role="tabpanel" aria-labelledby="tabView">
     <fieldset>
       <legend>Theme</legend>
       <div class="seg" data-setting="theme">
@@ -459,6 +553,14 @@
       </div>
     </fieldset>
     <fieldset>
+      <legend>Mix</legend>
+      <div class="ctl">
+        <div class="ctl-top"><label for="mix">Beat and vocals</label><output id="mixOut"></output></div>
+        <input type="range" id="mix" min="0" max="100" step="1">
+        <div class="ends"><span>More beat</span><span>More vocals</span></div>
+      </div>
+    </fieldset>
+    <fieldset>
       <legend>Motion</legend>
       <p class="hint">Reduced turns off the pulsing light and animations.</p>
       <div class="seg" data-setting="motion">
@@ -474,6 +576,120 @@
       <kbd>Esc</kbd><span>Close settings</span>
     </div>
   </div>
+
+  <div class="sheet-body panel" id="panelShow" role="tabpanel" aria-labelledby="tabShow" hidden>
+    <p class="lock" id="lockNote" hidden>Only the host can change these. This is how the show is set up right now.</p>
+
+    <fieldset class="host">
+      <legend>Rapper</legend>
+      <div class="ctl">
+        <label class="ctl-top" for="persona">Persona</label>
+        <textarea id="persona" maxlength="300"></textarea>
+        <p class="hint" id="personaHint">Leave it empty to use the default.</p>
+      </div>
+      <div class="ctl">
+        <label class="ctl-top" for="model">Lyric model</label>
+        <select id="model"></select>
+        <p class="hint">Bigger models write better bars but need more GPU memory next to the music engine.</p>
+      </div>
+      <div class="ctl">
+        <label class="ctl-top" for="language">Language</label>
+        <select id="language"></select>
+      </div>
+    </fieldset>
+
+    <fieldset class="host">
+      <legend>Lyrics</legend>
+      <div class="ctl">
+        <div class="ctl-top"><label for="creativity">Creativity</label><output id="creativityOut"></output></div>
+        <input type="range" id="creativity" min="50" max="140" step="5">
+        <div class="ends"><span>Safe</span><span>Wild</span></div>
+      </div>
+      <p class="ctl-top" style="margin:4px 0 8px">Tone</p>
+      <div class="seg" data-show="tone" style="margin-bottom:14px">
+        <label><input type="radio" name="tone" value="mixed"><span>Mixed</span></label>
+        <label><input type="radio" name="tone" value="story"><span>Story</span></label>
+        <label><input type="radio" name="tone" value="brag"><span>Brag</span></label>
+        <label><input type="radio" name="tone" value="funny"><span>Funny</span></label>
+        <label><input type="radio" name="tone" value="deep"><span>Deep</span></label>
+      </div>
+      <p class="ctl-top" style="margin:4px 0 8px">Rhymes</p>
+      <div class="seg" data-show="rhyme" style="margin-bottom:14px">
+        <label><input type="radio" name="rhyme" value="loose"><span>Loose</span></label>
+        <label><input type="radio" name="rhyme" value="couplets"><span>Couplets</span></label>
+        <label><input type="radio" name="rhyme" value="multis"><span>Dense</span></label>
+      </div>
+      <p class="ctl-top" style="margin:4px 0 8px">How often it says your word</p>
+      <div class="seg" data-show="word_use" style="margin-bottom:14px">
+        <label><input type="radio" name="word_use" value="subtle"><span>Once</span></label>
+        <label><input type="radio" name="word_use" value="natural"><span>Once or twice</span></label>
+        <label><input type="radio" name="word_use" value="heavy"><span>A lot</span></label>
+      </div>
+      <div class="ctl">
+        <div class="ctl-top"><label for="verses_between_hooks">Verses before each hook</label><output id="versesOut"></output></div>
+        <input type="range" id="verses_between_hooks" min="1" max="4" step="1">
+      </div>
+      <label class="switch" for="keep_rapping"><span>Keep rapping between words</span><input type="checkbox" id="keep_rapping"></label>
+      <p class="hint">When off, the beat plays on its own until someone sends a word.</p>
+    </fieldset>
+
+    <fieldset class="host">
+      <legend>Sound</legend>
+      <p class="hint">Changes here take effect when you start a new beat.</p>
+      <p class="ctl-top" style="margin:4px 0 8px">Style</p>
+      <div class="seg" data-show="genre" id="genreSeg" style="margin-bottom:14px"></div>
+      <p class="ctl-top" style="margin:4px 0 8px">Voice</p>
+      <div class="seg" data-show="voice" style="margin-bottom:14px">
+        <label><input type="radio" name="voice" value="male"><span>Male</span></label>
+        <label><input type="radio" name="voice" value="female"><span>Female</span></label>
+      </div>
+      <div class="ctl">
+        <div class="ctl-top"><label for="energy">Energy</label><output id="energyOut"></output></div>
+        <input type="range" id="energy" min="0" max="100" step="1">
+        <div class="ends"><span>Chill</span><span>Hype</span></div>
+      </div>
+      <div class="ctl">
+        <div class="ctl-top"><label for="mood">Mood</label><output id="moodOut"></output></div>
+        <input type="range" id="mood" min="0" max="100" step="1">
+        <div class="ends"><span>Dark</span><span>Bright</span></div>
+      </div>
+      <div class="ctl">
+        <div class="ctl-top"><label for="flow">Flow</label><output id="flowOut"></output></div>
+        <input type="range" id="flow" min="0" max="100" step="1">
+        <div class="ends"><span>Smooth</span><span>Rapid-fire</span></div>
+      </div>
+      <div class="ctl">
+        <div class="ctl-top"><label for="polish">Production</label><output id="polishOut"></output></div>
+        <input type="range" id="polish" min="0" max="100" step="1">
+        <div class="ends"><span>Raw</span><span>Polished</span></div>
+      </div>
+      <div class="ctl">
+        <div class="ctl-top"><label for="bpm">Tempo</label><output id="bpmOut"></output></div>
+        <input type="range" id="bpm" min="70" max="150" step="1">
+        <div class="ends"><span>70 BPM</span><span>150 BPM</span></div>
+      </div>
+      <div class="ctl">
+        <label class="ctl-top" for="extra_tags">Extra sound tags</label>
+        <input type="text" id="extra_tags" maxlength="120" placeholder="like: jazz horns, rainy night">
+      </div>
+      <p class="ctl-top" style="margin:4px 0 6px">What the music engine will hear</p>
+      <div class="caption" id="captionBox"></div>
+      <button class="primary" id="newBeat" type="button">Make a new beat with this sound</button>
+    </fieldset>
+
+    <fieldset class="host">
+      <legend>Crowd</legend>
+      <div class="ctl">
+        <div class="ctl-top"><label for="cooldown">Wait between words, per person</label><output id="cooldownOut"></output></div>
+        <input type="range" id="cooldown" min="0" max="60" step="1">
+      </div>
+      <div class="ctl">
+        <div class="ctl-top"><label for="queue_max">Words allowed in line</label><output id="queueOut"></output></div>
+        <input type="range" id="queue_max" min="1" max="10" step="1">
+      </div>
+    </fieldset>
+    <p class="saved" id="savedNote" aria-live="polite"></p>
+  </div>
 </aside>
 
 <script>
@@ -486,7 +702,7 @@
   const prefersLight = () => window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches;
 
   // ---------- settings (kept in this browser only) ----------
-  const DEFAULTS = { theme: "auto", lyricColor: "word", lyricSize: "1", karaoke: "sweep", viz: "tape", motion: "auto", vol: 0.9 };
+  const DEFAULTS = { theme: "auto", lyricColor: "word", lyricSize: "1", karaoke: "sweep", viz: "tape", motion: "auto", vol: 0.9, mix: 50 };
   let settings = { ...DEFAULTS };
   try { settings = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem("fai-settings") || "{}") || {}) }; } catch (e) {}
   function saveSettings() { try { localStorage.setItem("fai-settings", JSON.stringify(settings)); } catch (e) {} }
@@ -501,14 +717,17 @@
     root.style.setProperty("--lyr-scale", settings.lyricSize);
     $("lane").classList.toggle("off", settings.viz === "off");
     $("legend").style.display = settings.viz === "tape" ? "" : "none";
-    document.querySelectorAll(".seg").forEach((seg) => {
+    document.querySelectorAll(".seg[data-setting]").forEach((seg) => {
       const key = seg.dataset.setting;
       seg.querySelectorAll("input").forEach((inp) => { inp.checked = String(settings[key]) === inp.value; });
     });
+    $("mix").value = settings.mix;
+    $("mixOut").textContent = settings.mix == 50 ? "Even" : (settings.mix < 50 ? "Beat +" + (50 - settings.mix) : "Vocals +" + (settings.mix - 50));
+    applyMix();
     shownLine = -2;   // re-place the lyric scroll at the new size
     requestAnimationFrame(sizeCanvas);
   }
-  document.querySelectorAll(".seg").forEach((seg) => {
+  document.querySelectorAll(".seg[data-setting]").forEach((seg) => {
     seg.addEventListener("change", (e) => {
       settings[seg.dataset.setting] = e.target.value;
       saveSettings(); applySettings();
@@ -520,6 +739,17 @@
   }
 
   let lastFocus = null;
+  // tabs
+  function showTab(which) {
+    const show = which === "show";
+    $("tabView").setAttribute("aria-selected", String(!show));
+    $("tabShow").setAttribute("aria-selected", String(show));
+    $("panelView").hidden = show; $("panelShow").hidden = !show;
+    if (show) loadConfig();
+  }
+  $("tabView").addEventListener("click", () => showTab("view"));
+  $("tabShow").addEventListener("click", () => showTab("show"));
+
   function openSettings() {
     lastFocus = document.activeElement;
     $("sheet").classList.add("open"); $("scrim").classList.add("open");
@@ -577,6 +807,15 @@
   }
   function nudge(cls) { const f = $("field"); f.classList.remove("sent", "shake"); void f.offsetWidth; f.classList.add(cls); }
 
+  // ---------- beat/vocal balance ----------
+  function applyMix() {
+    if (!beatGain) return;
+    const m = settings.mix / 100;
+    beatGain.gain.setTargetAtTime(0.9 * Math.min(1, (1 - m) * 2), ctx.currentTime, 0.05);
+    vocalGain.gain.setTargetAtTime(Math.min(1.25, m * 2), ctx.currentTime, 0.05);
+  }
+  $("mix").addEventListener("input", (e) => { settings.mix = parseInt(e.target.value, 10); saveSettings(); applySettings(); });
+
   // ---------- volume ----------
   let muted = false;
   $("vol").value = settings.vol;
@@ -604,9 +843,10 @@
     master.connect(mixAn).connect(ctx.destination);
     anchorCtx = ctx.currentTime;
     anchorServer = serverNow();
-    applyVol();
+    applyVol(); applyMix();
     $("app").classList.add("joined");
     setTimeout(() => $("word").focus(), 50);
+    showIdeas();
     if (state) { renderState(); syncAudio(); }
   }
   $("tune").addEventListener("click", join);
@@ -622,6 +862,7 @@
         myWords.add(w.toLowerCase());
         $("word").value = ""; $("count").textContent = "0/40";
         nudge("sent");
+        showIdeas();
         note(data.position > 1 ? `Got it. <b>${esc(w)}</b> is number ${data.position} in line.` : `Got it. Writing a verse about <b>${esc(w)}</b>.`);
         poll();
       } else {
@@ -640,6 +881,52 @@
     await fetch("/api/quit", { method: "POST", body: "{}" }).catch(() => {});
     banner("The show is stopped. You can close this tab.");
   });
+
+  // ---------- reactions (everyone sees them) ----------
+  const EMOJI = { fire: "🔥", clap: "👏", laugh: "😂", hundred: "💯" };
+  const seenReacts = new Set();
+  function floatUp(kind) {
+    if (root.getAttribute("data-motion") === "reduced") return;
+    const el = document.createElement("span");
+    el.className = "floater"; el.textContent = EMOJI[kind] || "🔥";
+    const lyr = $("lyrics").getBoundingClientRect();
+    const left = (lyr.width > 0 && window.innerWidth > 900) ? lyr.left + 30 + Math.random() * (lyr.width - 90) : 30 + Math.random() * (window.innerWidth - 90);
+    el.style.left = left + "px";
+    el.style.setProperty("--dx", (Math.random() * 80 - 40).toFixed(0) + "px");
+    $("floaters").appendChild(el);
+    setTimeout(() => el.remove(), 2700);
+  }
+  document.querySelectorAll(".react").forEach((btn) => btn.addEventListener("click", async () => {
+    floatUp(btn.dataset.e);
+    try {
+      const r = await fetch("/api/react", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ e: btn.dataset.e }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) seenReacts.add("mine-" + Date.now());
+    } catch (e) {}
+  }));
+  let myReactTimes = [];
+  document.querySelectorAll(".react").forEach((btn) => btn.addEventListener("click", () => myReactTimes.push(serverNow())));
+  function showReactions(list) {
+    for (const r of list || []) {
+      if (seenReacts.has(r.id)) continue;
+      seenReacts.add(r.id);
+      // skip the one we already floated ourselves
+      const idx = myReactTimes.findIndex((t) => Math.abs(t - r.t) < 1.5);
+      if (idx >= 0) { myReactTimes.splice(idx, 1); continue; }
+      if (ctx) setTimeout(() => floatUp(r.e), Math.random() * 400);
+    }
+  }
+
+  // ---------- word ideas ----------
+  const IDEAS = ["deep dish", "midterms", "parking ticket", "grandma's cooking", "the L train", "group project", "Monday", "pizza rolls",
+                 "lake effect snow", "WiFi password", "gym", "coffee", "Wi-Fi", "rent day", "a cat", "late fees", "spaceship", "cricket",
+                 "alarm clock", "headphones", "street tacos", "free throws", "thunderstorm", "skyscraper", "laundry", "ramen"];
+  function showIdeas() {
+    const pick = [];
+    while (pick.length < 3) { const w = IDEAS[Math.floor(Math.random() * IDEAS.length)]; if (!pick.includes(w)) pick.push(w); }
+    $("ideas").innerHTML = `<span class="row-label">Need an idea?</span>` + pick.map((w) => `<button class="chip" type="button" data-w="${esc(w)}">${esc(w)}</button>`).join("");
+  }
+  $("ideas").addEventListener("click", (e) => { const w = e.target.closest(".chip")?.dataset.w; if (w) { sendWord(w); showIdeas(); } });
 
   // ---------- keyboard ----------
   document.addEventListener("keydown", (e) => {
@@ -680,9 +967,23 @@
     if (!r.ok) throw new Error("missing");
     return await ctx.decodeAudioData(await r.arrayBuffer());
   }
+  let beatVersion = null;
+  function dropEverything() {
+    if (beat.src) { try { beat.src.stop(); } catch (e) {} }
+    beat = { buf: null, src: null, loading: false };
+    for (const item of sched.values()) { try { item.src.stop(); } catch (e) {} }
+    sched.clear();
+    shownId = null; shownLine = -2;
+  }
   async function syncAudio() {
     const s = state;
-    if (!s || s.t0 == null) return;
+    if (!s) return;
+    if (beatVersion !== null && s.beat_version !== beatVersion) {
+      dropEverything();
+      toast("New beat: " + s.style);
+    }
+    beatVersion = s.beat_version;
+    if (s.t0 == null) return;
     if (s.beat && !beat.buf && !beat.loading) {
       beat.loading = true;
       try { beat.buf = await loadBuffer(s.beat); } catch (e) {}
@@ -733,7 +1034,13 @@
   function renderState() {
     const s = state;
     $("people").hidden = false;
-    $("peopleText").textContent = s.listeners === 1 ? "1 listening" : `${s.listeners} listening`;
+    const ptxt = s.listeners === 1 ? "1 listening" : `${s.listeners} listening`;
+    if ($("peopleText").textContent !== ptxt) {
+      $("peopleText").textContent = ptxt;
+      $("people").classList.remove("pop"); void $("people").offsetWidth; $("people").classList.add("pop");
+    }
+    if (s.style) { $("styleChip").hidden = false; $("styleText").textContent = s.style; }
+    showReactions(s.reactions);
     $("stop").hidden = !s.host;
 
     const item = currentPiece();
@@ -805,7 +1112,7 @@
       const word = p.word || state.topic;
       root.style.setProperty("--verse", colorFor(word));
       $("kind").textContent = (p.section === "Chorus" ? "Hook: " : "Verse: ") + (word || "");
-      $("track").innerHTML = p.lines.map((l) => `<p class="lyr-line">${markWord(l, word)}</p>`).join("");
+      $("track").innerHTML = p.lines.map((l, i) => `<p class="lyr-line enter" style="--i:${i}">${markWord(l, word)}</p>`).join("");
       bars.innerHTML = p.lines.map(() => "<i></i>").join("");
       if (p.word && myWords.has(p.word.toLowerCase())) toast(`You're on: “${p.word}”`);
     }
@@ -813,7 +1120,10 @@
     if (lineIdx !== shownLine) {
       shownLine = lineIdx;
       els.forEach((el, i) => { el.classList.toggle("now", i === lineIdx); el.classList.toggle("sung", i < lineIdx); });
-      bars.querySelectorAll("i").forEach((el, i) => el.classList.toggle("on", i <= lineIdx));
+      bars.querySelectorAll("i").forEach((el, i) => {
+        el.classList.toggle("on", i <= lineIdx);
+        el.classList.toggle("pulse", i === lineIdx);
+      });
       const active = els[Math.max(lineIdx, 0)];
       if (active) $("track").style.transform = `translateY(${-Math.max(active.offsetTop - $("track").parentElement.clientHeight * 0.22, 0)}px)`;
     }
@@ -920,6 +1230,113 @@
     }
     requestAnimationFrame(tick);
   }
+
+  // ---------- the show: host settings ----------
+  let cfg = null, saveTimer = null;
+  const SHOW_SLIDERS = ["creativity", "verses_between_hooks", "energy", "mood", "flow", "polish", "bpm", "cooldown", "queue_max"];
+  const SLIDER_OUT = { creativity: "creativityOut", verses_between_hooks: "versesOut", energy: "energyOut", mood: "moodOut",
+                       flow: "flowOut", polish: "polishOut", bpm: "bpmOut", cooldown: "cooldownOut", queue_max: "queueOut" };
+  function sliderText(k, v) {
+    v = Number(v);
+    if (k === "bpm") return v + " BPM";
+    if (k === "cooldown") return v === 0 ? "None" : v + " s";
+    if (k === "creativity") return v < 80 ? "Safe" : v > 115 ? "Wild" : "Balanced";
+    if (k === "energy") return v < 35 ? "Chill" : v > 65 ? "Hype" : "Steady";
+    if (k === "mood") return v < 35 ? "Dark" : v > 65 ? "Bright" : "Neutral";
+    if (k === "flow") return v < 35 ? "Smooth" : v > 65 ? "Rapid-fire" : "Steady";
+    if (k === "polish") return v < 35 ? "Raw" : v > 65 ? "Polished" : "Clean";
+    return String(v);
+  }
+  function previewCaption(st) {
+    // mirrors the server's caption builder so the box updates while you drag
+    const g = { polished: "polished studio hip hop, punchy drums, deep bass, soulful piano loop", boombap: "boom bap hip hop, dusty drums, vinyl samples, jazzy chops",
+                trap: "trap, booming 808 bass, crisp rolling hi-hats", lofi: "lo-fi hip hop, mellow keys, soft drums, vinyl crackle",
+                drill: "drill, sliding 808s, dark piano, sharp hi-hats", rnb: "r&b, smooth sung vocals, warm keys, laid back groove" };
+    const sung = st.genre === "rnb", p = [g[st.genre] || g.polished];
+    p.push((st.voice === "female" ? "female " : "male ") + (sung ? "singer" : "rapper"));
+    p.push(st.energy < 35 ? "laid back, relaxed" : st.energy > 65 ? "high energy, hard-hitting, aggressive" : "confident");
+    if (st.mood < 35) p.push("dark, moody"); else if (st.mood > 65) p.push("uplifting, bright, feel-good");
+    p.push(st.flow < 35 ? "smooth melodic flow" : st.flow > 65 ? "fast rapid-fire flow" : "steady flow");
+    p.push(st.polish < 35 ? "raw, gritty, underground" : st.polish > 65 ? "professionally mixed and mastered" : "clean mix");
+    if ((st.extra_tags || "").trim()) p.push(st.extra_tags.trim());
+    p.push("clear upfront vocals, " + (sung ? "vocals" : "rap vocals") + " throughout, " + st.bpm + " bpm");
+    return p.join(", ");
+  }
+  const STYLE_KEYS = ["genre", "voice", "energy", "mood", "flow", "polish", "bpm", "extra_tags"];
+  let activeCaption = "";
+  function renderCaption() {
+    if (!cfg) return;
+    const cap = previewCaption(cfg.studio);
+    const changed = cap !== activeCaption;
+    $("captionBox").innerHTML = changed ? `<b>Next beat:</b> ${esc(cap)}` : `<b>Playing now:</b> ${esc(cap)}`;
+    $("captionBox").classList.toggle("changed", changed);
+    $("newBeat").disabled = !cfg.host;
+    $("newBeat").textContent = changed ? "Make a new beat with this sound" : "Make a fresh beat";
+  }
+  function fillConfig(c) {
+    cfg = c;
+    const st = c.studio;
+    activeCaption = c.caption_active;
+    $("lockNote").hidden = c.host;
+    document.querySelectorAll("#panelShow fieldset.host").forEach((f) => { f.disabled = !c.host; });
+    $("persona").value = st.persona;
+    $("persona").placeholder = c.default_persona;
+    $("personaHint").textContent = "Leave it empty to use the default: " + c.default_persona;
+    const models = c.models.includes(st.model) ? c.models : [st.model, ...c.models];
+    $("model").innerHTML = models.map((m) => `<option value="${esc(m)}"${m === st.model ? " selected" : ""}>${esc(m)}</option>`).join("");
+    $("language").innerHTML = Object.entries(c.languages).map(([k, v]) => `<option value="${k}"${k === st.language ? " selected" : ""}>${esc(v)}</option>`).join("");
+    $("genreSeg").innerHTML = Object.entries(c.genres).map(([k, v]) => `<label><input type="radio" name="genre" value="${k}"${k === st.genre ? " checked" : ""}><span>${esc(v)}</span></label>`).join("");
+    for (const k of SHOW_SLIDERS) { $(k).value = st[k]; $(SLIDER_OUT[k]).textContent = sliderText(k, st[k]); }
+    document.querySelectorAll("#panelShow .seg[data-show]").forEach((seg) => {
+      seg.querySelectorAll("input").forEach((inp) => { inp.checked = String(st[seg.dataset.show]) === inp.value; });
+    });
+    $("keep_rapping").checked = !!st.keep_rapping;
+    $("extra_tags").value = st.extra_tags;
+    renderCaption();
+  }
+  async function loadConfig() {
+    try { fillConfig(await (await fetch("/api/config", { cache: "no-store" })).json()); } catch (e) { $("savedNote").textContent = "Couldn't load the show settings."; }
+  }
+  function queueSave(patch) {
+    if (!cfg || !cfg.host) return;
+    Object.assign(cfg.studio, patch);
+    renderCaption();
+    $("savedNote").textContent = "Saving…";
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg.studio) });
+        const d = await r.json();
+        if (r.ok) {
+          activeCaption = d.caption_active;
+          cfg.models = d.models;
+          renderCaption();
+          const isStyle = Object.keys(patch).some((k) => STYLE_KEYS.includes(k));
+          $("savedNote").textContent = isStyle ? "Saved. The sound changes with the next beat." : "Saved. The next verse uses this.";
+        } else $("savedNote").textContent = d.error || "Couldn't save.";
+      } catch (e) { $("savedNote").textContent = "Couldn't reach the studio."; }
+    }, 450);
+  }
+  for (const k of SHOW_SLIDERS) {
+    $(k).addEventListener("input", (e) => { $(SLIDER_OUT[k]).textContent = sliderText(k, e.target.value); queueSave({ [k]: Number(e.target.value) }); });
+  }
+  $("panelShow").addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.name && t.type === "radio" && t.closest(".seg[data-show]")) queueSave({ [t.name]: t.value });
+    else if (t.id === "model" || t.id === "language") queueSave({ [t.id]: t.value });
+    else if (t.id === "keep_rapping") queueSave({ keep_rapping: t.checked });
+  });
+  $("persona").addEventListener("input", (e) => queueSave({ persona: e.target.value }));
+  $("extra_tags").addEventListener("input", (e) => queueSave({ extra_tags: e.target.value }));
+  $("newBeat").addEventListener("click", async () => {
+    clearTimeout(saveTimer);
+    try {
+      await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg.studio) });
+      const r = await fetch("/api/newbeat", { method: "POST", body: "{}" });
+      if (r.ok) { $("savedNote").textContent = "Making a new beat. It starts in a few seconds."; toast("Making a new beat…"); activeCaption = previewCaption(cfg.studio); renderCaption(); }
+      else $("savedNote").textContent = "Only the host can start a new beat.";
+    } catch (e) { $("savedNote").textContent = "Couldn't reach the studio."; }
+  });
 
   applySettings();
   sizeCanvas();
