@@ -1,0 +1,2 @@
+# One word or phrase per line. Any word a visitor submits that contains one of these is rejected.
+# Lines starting with # are ignored.

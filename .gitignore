@@ -1,0 +1,16 @@
+# Big downloads - each person gets their own copy
+ACE-Step-1.5/
+*.7z
+*.exe
+tools/cloudflared.exe
+
+# Generated while running
+freestyle_log.txt
+output/
+diag/
+__pycache__/
+*.wav
+*.mp3
+
+# Local backups
+*_backup.py

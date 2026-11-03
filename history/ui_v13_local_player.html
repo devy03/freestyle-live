@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Freestyle Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0c;
+    --panel: #141418;
+    --text: #f5f5f7;
+    --muted: #8a8a93;
+    --faint: #2a2a31;
+    --accent-h: 145;
+    --accent: hsl(var(--accent-h) 70% 52%);
+    --accent-deep: hsl(var(--accent-h) 45% 26%);
+    --accent-glow: hsl(var(--accent-h) 80% 60% / 0.35);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Figtree", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    transition: background 1.2s;
+  }
+  .app {
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 1fr minmax(360px, 34vw);
+    grid-template-rows: auto 1fr 180px;
+    grid-template-areas: "top lyrics" "stage lyrics" "viz viz";
+  }
+  .glow {
+    position: fixed; inset: -30%; pointer-events: none; z-index: 0;
+    background: radial-gradient(circle at 35% 45%, var(--accent-glow), transparent 45%);
+    transition: background 1.2s;
+    animation: drift 14s ease-in-out infinite alternate;
+  }
+  @keyframes drift { to { transform: translate(4%, -3%) scale(1.08); } }
+
+  /* ---------- top bar ---------- */
+  .top {
+    grid-area: top; z-index: 1;
+    display: flex; align-items: center; gap: 14px;
+    padding: 22px 32px;
+  }
+  .logo { font-weight: 900; letter-spacing: 0.18em; font-size: 13px; }
+  .logo span { color: var(--accent); transition: color 1s; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 999px;
+    background: rgba(255,255,255,0.06); color: var(--muted);
+    font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill.live { color: var(--text); }
+  .pill.live .dot { background: #ff4b4b; box-shadow: 0 0 0 0 rgba(255,75,75,0.6); animation: pulse 1.4s infinite; }
+  .pill.beat .dot { background: #f5b84b; }
+  .pill.warming .dot { background: var(--accent); animation: blink 0.9s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 9px rgba(255,75,75,0); } 100% { box-shadow: 0 0 0 0 rgba(255,75,75,0); } }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  .spacer { flex: 1; }
+  .timing { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .quit {
+    background: none; border: 1px solid var(--faint); color: var(--muted);
+    padding: 7px 14px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .quit:hover { color: var(--text); border-color: var(--muted); }
+
+  /* ---------- center stage ---------- */
+  .stage {
+    grid-area: stage; z-index: 1;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    padding: 0 6vw 40px; text-align: center;
+  }
+  .label { color: var(--muted); font-weight: 600; letter-spacing: 0.2em; font-size: 12px; text-transform: uppercase; margin-bottom: 18px; }
+  form { width: min(620px, 100%); position: relative; }
+  #word {
+    width: 100%;
+    background: transparent; border: none; outline: none;
+    border-bottom: 2px solid var(--faint);
+    color: var(--text); caret-color: var(--accent);
+    font: 800 clamp(36px, 5.2vw, 72px)/1.15 "Figtree", "Segoe UI", sans-serif;
+    text-align: center; padding: 8px 0 14px;
+    transition: border-color 0.3s;
+  }
+  #word::placeholder { color: #3a3a42; }
+  #word:focus { border-bottom-color: var(--accent); }
+  .hint { margin-top: 14px; color: #55555e; font-size: 13px; }
+  .hint kbd {
+    font: inherit; font-weight: 600; color: var(--muted);
+    border: 1px solid var(--faint); border-radius: 6px; padding: 1px 7px;
+  }
+  .now { margin-top: 42px; min-height: 64px; }
+  .now .k { color: var(--muted); font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600; }
+  .now .v { font-size: 26px; font-weight: 800; margin-top: 6px; }
+  .now .v em { font-style: normal; color: var(--accent); transition: color 1s; }
+  .next { margin-top: 10px; color: var(--muted); font-size: 14px; min-height: 20px; }
+  .next b { color: var(--text); font-weight: 600; }
+  .chips { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 620px; }
+  .chip {
+    padding: 6px 13px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,0.05); color: var(--muted);
+    border: none; font-family: inherit; cursor: pointer; transition: all 0.2s;
+  }
+  .chip:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+  .chip.current { background: var(--accent); color: #0a0a0c; }
+
+  /* ---------- lyrics (Spotify style) ---------- */
+  .lyrics {
+    grid-area: lyrics; z-index: 1;
+    margin: 18px 18px 0 0; border-radius: 18px 18px 0 0;
+    background: linear-gradient(180deg, var(--accent-deep), color-mix(in srgb, var(--accent-deep) 55%, #0a0a0c));
+    transition: background 1.2s;
+    display: flex; flex-direction: column; overflow: hidden; position: relative;
+  }
+  .lyr-head { padding: 26px 30px 6px; display: flex; align-items: baseline; gap: 10px; }
+  .lyr-head .t { font-weight: 800; font-size: 15px; }
+  .lyr-head .s {
+    font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px; background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.75);
+  }
+  .lyr-view { flex: 1; overflow: hidden; position: relative;
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12%, #000 78%, transparent 100%);
+            mask-image: linear-gradient(180deg, transparent 0, #000 12%, #000 78%, transparent 100%); }
+  .lyr-track { padding: 0 30px; transition: transform 0.7s cubic-bezier(.2,.7,.2,1); will-change: transform; }
+  .line {
+    font-weight: 800; font-size: clamp(22px, 2.1vw, 32px); line-height: 1.28;
+    margin: 0 0 18px; color: rgba(0,0,0,0.45);
+    transition: color 0.45s, opacity 0.45s, transform 0.45s;
+    transform-origin: left center;
+  }
+  .line.past { color: rgba(255,255,255,0.55); }
+  .line.active { color: #fff; }
+  .line .w { color: inherit; text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 6px;
+             text-decoration-color: rgba(255,255,255,0.5); }
+  .lyr-empty { padding: 30px; color: rgba(255,255,255,0.6); font-weight: 600; font-size: 18px; line-height: 1.5; }
+  .lyr-empty b { color: #fff; }
+
+  /* ---------- visualizer ---------- */
+  .viz { grid-area: viz; z-index: 1; position: relative; border-top: 1px solid #16161b; background: #08080a; }
+  canvas { width: 100%; height: 100%; display: block; }
+
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    .app { height: auto; min-height: 100vh; grid-template-columns: 1fr; grid-template-rows: auto auto 420px 140px;
+           grid-template-areas: "top" "stage" "lyrics" "viz"; }
+    .top { padding: 16px; flex-wrap: wrap; }
+    .stage { padding: 30px 16px 40px; }
+    .lyrics { margin: 0 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<div class="app">
+  <header class="top">
+    <div class="logo">FREESTYLE<span>·</span>LIVE</div>
+    <div class="pill" id="pill"><span class="dot"></span><span id="pillText">Waiting</span></div>
+    <div class="spacer"></div>
+    <div class="timing" id="timing"></div>
+    <button class="quit" id="quit">Quit</button>
+  </header>
+
+  <main class="stage">
+    <div class="label" id="label">Give me a word to start</div>
+    <form id="form" autocomplete="off">
+      <input id="word" placeholder="type a word…" maxlength="60" autofocus>
+    </form>
+    <div class="hint">Press <kbd>Enter</kbd> to drop it in · it lands on the next bar</div>
+    <div class="now">
+      <div class="k">Now rapping about</div>
+      <div class="v" id="nowTopic">—</div>
+      <div class="next" id="next"></div>
+    </div>
+    <div class="chips" id="chips"></div>
+  </main>
+
+  <aside class="lyrics">
+    <div class="lyr-head"><span class="t">Lyrics</span><span class="s" id="section">—</span></div>
+    <div class="lyr-view" id="view">
+      <div class="lyr-track" id="track">
+        <div class="lyr-empty">Type a word in the middle and hit <b>Enter</b>.<br>The verse shows up here as it's rapped.</div>
+      </div>
+    </div>
+  </aside>
+
+  <section class="viz"><canvas id="viz"></canvas></section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let state = null;
+let shownKey = "";
+let lastLine = -2;
+let bands = new Array(48).fill(0);
+let target = new Array(48).fill(0);
+
+function hueFor(text) {
+  if (!text) return 145;
+  let h = 0;
+  for (const ch of text.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return h;
+}
+
+function esc(s) {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function highlight(line, word) {
+  let html = esc(line.replace(/\*\*/g, ""));
+  if (word) {
+    const re = new RegExp("(" + word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig");
+    html = html.replace(re, '<span class="w">$1</span>');
+  }
+  return html;
+}
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const w = $("word").value.trim();
+  if (!w) return;
+  $("word").value = "";
+  await fetch("/word", { method: "POST", body: JSON.stringify({ word: w }) });
+});
+
+$("quit").addEventListener("click", async () => {
+  await fetch("/quit", { method: "POST", body: "{}" }).catch(() => {});
+  document.body.innerHTML = '<div style="height:100vh;display:grid;place-items:center;color:#8a8a93;font:600 18px Figtree,Segoe UI,sans-serif">Peace out. You can close this tab.</div>';
+});
+
+function render() {
+  const s = state;
+  // status pill
+  const pill = $("pill");
+  pill.className = "pill " + s.status;
+  $("pillText").textContent = { waiting: "Waiting", warming: "Warming up", live: "Live", beat: "Beat only" }[s.status] || s.status;
+  $("timing").textContent = s.timing || "";
+  $("label").textContent = s.topic ? "Drop a new word" : "Give me a word to start";
+
+  // accent color follows the topic
+  document.documentElement.style.setProperty("--accent-h", hueFor(s.piece_word || s.topic));
+
+  // now / next
+  const playingTopic = s.topic && s.status !== "waiting" ? s.topic : null;
+  $("nowTopic").innerHTML = s.piece_word || playingTopic ? "<em>" + esc(lastTopicShown(s)) + "</em>" : "—";
+  let next = "";
+  if (s.pending) next = "Up next: <b>" + esc(s.pending) + "</b>";
+  else if (s.making) next = "Writing about <b>" + esc(s.making) + "</b>…";
+  $("next").innerHTML = next;
+
+  // chips
+  const chips = $("chips");
+  const current = lastTopicShown(s);
+  chips.innerHTML = s.words.slice().reverse().map((w) =>
+    '<button class="chip' + (w === current ? " current" : "") + '" data-w="' + esc(w) + '">' + esc(w) + "</button>").join("");
+
+  // lyrics
+  const key = s.lines.join("|") + s.section;
+  if (key !== shownKey) {
+    shownKey = key;
+    lastLine = -2;
+    $("section").textContent = s.lines.length ? (s.section === "Chorus" ? "Hook" : "Verse") : "—";
+    if (s.lines.length) {
+      $("track").innerHTML = s.lines.map((l) => '<p class="line">' + highlight(l, s.piece_word || s.topic) + "</p>").join("");
+    }
+  }
+  if (s.lines.length && s.line !== lastLine) {
+    lastLine = s.line;
+    const lines = $("track").querySelectorAll(".line");
+    lines.forEach((el, i) => {
+      el.classList.toggle("active", i === s.line);
+      el.classList.toggle("past", s.line >= 0 && i < s.line);
+    });
+    const active = lines[Math.max(s.line, 0)];
+    if (active) {
+      const offset = active.offsetTop - $("view").clientHeight * 0.28;
+      $("track").style.transform = "translateY(" + (-Math.max(offset, 0)) + "px)";
+    }
+  }
+  target = s.bands;
+}
+
+let topicMemo = null;
+function lastTopicShown(s) {
+  // topic of what's actually being heard (not what's being written)
+  if (s.piece_word) topicMemo = s.piece_word;
+  return topicMemo || s.topic || "";
+}
+
+$("chips").addEventListener("click", async (e) => {
+  const w = e.target.dataset && e.target.dataset.w;
+  if (w) await fetch("/word", { method: "POST", body: JSON.stringify({ word: w }) });
+});
+
+async function poll() {
+  try {
+    const r = await fetch("/state");
+    state = await r.json();
+    render();
+  } catch (e) {
+    $("pillText").textContent = "Disconnected";
+    $("pill").className = "pill";
+  }
+  setTimeout(poll, 50);
+}
+poll();
+
+// ---------- visualizer ----------
+const canvas = $("viz");
+const ctx = canvas.getContext("2d");
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.clientWidth * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+}
+window.addEventListener("resize", resize);
+resize();
+
+function draw() {
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const n = bands.length;
+  for (let i = 0; i < n; i++) {
+    const t = target[i] || 0;
+    bands[i] += (t - bands[i]) * (t > bands[i] ? 0.55 : 0.12);   // fast attack, slow fall
+  }
+  // mirror: low frequencies in the middle, highs to the edges
+  const order = [];
+  for (let i = n - 1; i >= 0; i--) order.push(bands[i]);
+  for (let i = 0; i < n; i++) order.push(bands[i]);
+  const count = order.length;
+  const gap = w / count;
+  const barW = Math.max(gap * 0.58, 2);
+  const mid = h / 2;
+  const hue = getComputedStyle(document.documentElement).getPropertyValue("--accent-h").trim() || 145;
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, "hsla(" + hue + ",85%,68%,0.95)");
+  grad.addColorStop(0.5, "hsla(" + hue + ",70%,52%,1)");
+  grad.addColorStop(1, "hsla(" + hue + ",85%,68%,0.95)");
+  ctx.fillStyle = grad;
+  for (let i = 0; i < count; i++) {
+    const v = Math.pow(order[i], 1.6);
+    const bh = Math.max(v * (h * 0.44), 2 * (window.devicePixelRatio || 1));
+    const x = i * gap + (gap - barW) / 2;
+    const r = Math.min(barW / 2, bh);
+    roundRect(x, mid - bh, barW, bh * 2, r);
+  }
+  requestAnimationFrame(draw);
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.fill();
+}
+draw();
+</script>
+</body>
+</html>
