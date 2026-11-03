@@ -1,4 +1,4 @@
-# Freestyle Live - website version
+# Freestyle AI - website version
 # The browser plays the music. This program writes the lyrics, makes the music,
 # and serves the website at http://127.0.0.1:5050 (share it online with share_online.bat).
 # Needs: start_engine.bat running, and Ollama running (llama icon in the tray).
@@ -688,7 +688,7 @@ def unload_other_ollama_models():
         print("(couldn't check Ollama models: " + str(e) + ")")
 
 
-print("=== Freestyle Live (website) - lyrics by " + OLLAMA_MODEL + " ===")
+print("=== Freestyle AI (website) - lyrics by " + OLLAMA_MODEL + " ===")
 unload_other_ollama_models()
 clean_engine_folder()
 open(LOG_PATH, "w").close()

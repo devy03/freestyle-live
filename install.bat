@@ -1,5 +1,5 @@
 @echo off
-title Freestyle Live - setup
+title Freestyle AI - setup
 cd /d "%~dp0"
 set "PY=%~dp0ACE-Step-1.5\python_embeded\python.exe"
 if not exist "%PY%" (

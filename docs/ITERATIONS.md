@@ -1,4 +1,4 @@
-# How Freestyle Live got built
+# How Freestyle AI got built
 
 The goal from the start: something like Suno, running on my own PC, that raps continuously and works in whatever word I give it, like a freestyler would. Here's every version, what went wrong, and what fixed it. The code for each one is in [`../history/`](../history/).
 
@@ -129,7 +129,17 @@ The current [`freestyle_live.py`](../freestyle_live.py) and [`ui.html`](../ui.ht
 - **Public link** through a free Cloudflare tunnel.
 - **A redesigned interface:** set in Big Shoulders (a typeface made for Chicago), with an amber "on air" light, a lyrics panel that changes color per word with a bar counter, and a scrolling track showing vocals over the beat with a line at every bar.
 
-![The website](screenshots/02-live-verse.png)
+![The website](screenshots/history-v16-website.png)
+
+## v17: Freestyle AI
+
+Renamed the project to **Freestyle AI** and made the site feel more alive.
+
+- **Settings,** saved in each visitor's browser: four themes (Studio, Daylight, Midnight, High contrast) or match the device, lyrics panel colored per word or matching the theme, three lyric sizes, a karaoke-style sweep across the active line, a tape or spectrum visualizer, and reduced motion.
+- **Reactions to the music:** the background light pulses with the kick drum and the on-air light glows with the vocals.
+- **Reactions to you:** a live countdown to the next verse, a "lands in 0:08" heads-up and a "you're on" note when your word comes up, your words marked in the queue, recent words you can tap to send again, a nudge when a word goes through and a shake when it doesn't, and keyboard shortcuts.
+
+![Themes](screenshots/themes.png)
 
 ## What I'd try next
 

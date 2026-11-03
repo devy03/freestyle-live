@@ -1,12 +1,12 @@
-# Freestyle Live
+# Freestyle AI
 
 **Give it a word. It raps about it.**
 
-Freestyle Live is a nonstop AI rap song that runs on your own PC. Type a word on the website, and a few seconds later the rapper drops a verse about it, on the beat, with the lyrics scrolling along like Spotify. Friends can join through a link, hear the same song in their own browser, and throw in words of their own.
+Freestyle AI is a nonstop AI rap song that runs on your own PC. Type a word on the website, and a few seconds later the rapper drops a verse about it, on the beat, with the lyrics scrolling along like Spotify. Friends can join through a link, hear the same song in their own browser, and throw in words of their own.
 
 Everything runs locally: the lyrics come from a small language model in [Ollama](https://ollama.com), the music comes from [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5), and the vocals get split from the beat with [Demucs](https://github.com/adefossez/demucs). No API keys, no subscriptions.
 
-![Freestyle Live demo](docs/screenshots/demo.gif)
+![Freestyle AI demo: dropping a word, then switching to the Midnight theme and spectrum visualizer](docs/screenshots/demo.gif)
 
 ## What it does
 
@@ -18,13 +18,22 @@ Everything runs locally: the lyrics come from a small language model in [Ollama]
 - **The crowd picks the words.** Anyone listening can add a word. Words wait in line (up to 5), and each visitor can send one every 8 seconds.
 - **You can share it with a link.** One double-click makes a public link through a free Cloudflare tunnel.
 
+- **Make it yours.** Four themes (Studio, Daylight, Midnight, High contrast) or match your device, lyric size, a karaoke-style sweep across each line, a tape or spectrum visualizer, and reduced motion. Settings are saved in your browser.
+- **It reacts.** The room light pulses with the kick drum, the on-air light glows with the vocals, there's a countdown to the next verse, and you get a heads-up when your word is about to land.
+
 | Before you tune in | A verse playing |
 |---|---|
-| ![Landing page](docs/screenshots/01-landing.png) | ![A verse playing](docs/screenshots/02-live-verse.png) |
+| ![Landing page](docs/screenshots/landing.png) | ![A verse playing in the Studio theme](docs/screenshots/live-studio.png) |
 
-| A hook, with the next word being typed | On a phone |
+| Settings | On a phone |
 |---|---|
-| ![A hook playing](docs/screenshots/03-live-hook.png) | <img src="docs/screenshots/04-phone.png" alt="Phone layout" width="300"> |
+| ![Settings panel](docs/screenshots/settings.png) | <img src="docs/screenshots/phone.png" alt="Phone layout" width="300"> |
+
+### Themes
+
+![Studio, Daylight, Midnight, and High contrast themes](docs/screenshots/themes.png)
+
+Keyboard shortcuts: <kbd>/</kbd> jumps to the word box, <kbd>M</kbd> mutes, <kbd>S</kbd> opens settings, and <kbd>Esc</kbd> closes them.
 
 ## What you need
 
@@ -51,7 +60,7 @@ To let other people in, double-click **`share_online.bat`** and send them the `h
 | File | What it's for |
 |---|---|
 | `freestyle_live.py` | The show: writes lyrics, makes the music, separates vocals, keeps the song clock, and serves the website. |
-| `ui.html` | The website. All the audio playback, lyric sync, and visualizer happen here, in the visitor's browser. |
+| `ui.html` | The website. Audio playback, lyric sync, the visualizer, and the settings all happen here, in the visitor's browser. |
 | `install.bat` | One-time setup (Demucs and the lyric model). |
 | `start_everything.bat` | Starts the engine and the website together. |
 | `start_engine.bat` / `run_live.bat` | Start the music engine or the website on their own. |
@@ -120,7 +129,7 @@ When nobody has the page open, the script stops making new verses, so your GPU i
 
 ## How it got here
 
-This took 16 versions in one long afternoon, from "make one clip per word" to a shared website. The full story, with what broke at each step and how it got fixed, is in [docs/ITERATIONS.md](docs/ITERATIONS.md), and every version's code is in [history/](history/).
+This took 17 versions in one long afternoon, from "make one clip per word" to a shared website. The full story, with what broke at each step and how it got fixed, is in [docs/ITERATIONS.md](docs/ITERATIONS.md), and every version's code is in [history/](history/).
 
 ## Credits
 

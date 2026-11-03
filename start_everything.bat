@@ -1,5 +1,5 @@
 @echo off
-title Freestyle Live - starter
+title Freestyle AI - starter
 cd /d "%~dp0"
 echo Starting the music engine in its own window...
 start "ACE-Step Engine" cmd /c "%~dp0start_engine.bat"
@@ -9,5 +9,5 @@ timeout /t 3 /nobreak >nul
 curl -s http://127.0.0.1:8001/health >nul 2>&1
 if errorlevel 1 goto wait
 echo Engine is ready. Starting the website...
-start "Freestyle Live" cmd /c "%~dp0run_live.bat"
+start "Freestyle AI" cmd /c "%~dp0run_live.bat"
 exit
