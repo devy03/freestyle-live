@@ -180,6 +180,16 @@ Renamed the project to **Freestyle AI** and made the site feel more alive.
 - The lyrics panel scrolls: scroll up to read back through the song, and a "Back to live" button jumps to the current line. The highlight also waits for the speakers' output delay and lights each line when its first word is sung, so it no longer runs ahead.
 - Story mode no longer shows the model an example verse, the new-word prompt is reworded, and lines that echo the instructions are filtered out.
 
+## v23: Undoing what made it mumble
+
+Once Whisper worked, the log showed what was really coming out: lots of "yeah yeah yeah" and half-heard lines. Music also slowed to 15–35 seconds a clip, so retries left long stretches of beat only.
+
+- **The full first clip is the voice reference again.** Cutting it to 4 bars was the change that came right before the mumbling.
+- **Whisper runs on the CPU,** so it never takes GPU memory from the music engine.
+- **No more retries.** A chunk always plays about 4 bars of vocals with no gaps. Only the lines Whisper heard are shown, and if it heard nothing it moves on instead of getting stuck on the same lines.
+- A line only counts as finished if its last words were heard, so the cut never lands mid-line. Matching is a little looser, since Whisper mishears fast rap.
+- Lines are capped at 11 words, because long lines don't fit in one bar and get mumbled.
+
 ## What I'd try next
 
 - Run on a bigger GPU (Qwen3 8B or larger for lyrics, ACE-Step XL for sound) through UIC's research cluster or a free notebook GPU, to see how much better it gets

@@ -38,9 +38,10 @@ EXTRA_BARS = 2              # 2 more lines are sung and thrown away so the song 
 LOOP_BARS = 8               # the nonstop beat loop is 8 bars, taken from the first clip
 STORY_BATCH = 8             # lines written per lyric request (two chunks' worth)
 USE_VOICE_REFERENCE = True  # keep the same rapper by referencing the first piece
-REFERENCE_BARS = 4          # only the first 4 bars of it are sent (a long reference slows every clip down)
+REFERENCE_BARS = 0          # 0 = send the whole first clip (a short reference made the vocals mumble)
 CHECK_LYRICS = True         # listen back with Whisper and only show lines that were really sung (English)
 ASR_MODEL = "openai/whisper-base.en"   # about 150 MB, downloads the first time
+ASR_DEVICE = "cpu"          # the checker runs on the CPU so it never takes GPU memory from the music engine
 VOCAL_VOLUME = 1.0
 BEAT_VOLUME = 0.9
 SAMPLE_RATE = 48000
@@ -338,7 +339,7 @@ def to_lines(text):
             continue
         if any(p in low for p in ECHOES):
             continue   # the model repeated our instructions back as a lyric
-        if len(line.split()) > 14:     # very long lines get mumbled - skip them
+        if len(line.split()) > 11:     # long lines don't fit in one bar and get mumbled - skip them
             continue
         lines.append(line)
     return lines
@@ -480,7 +481,7 @@ WRITER_RULES = (
     "no 'matrix', 'algorithm', 'cosmic' or 'interstellar' unless the topic is about that.\n"
     "- Land a punchline every two lines: a double meaning, a twist, or a joke that pays off on the last word.\n"
     "- {rhyme}\n"
-    "- Each line is one bar: 8 to 12 syllables.\n"
+    "- Each line is one bar: 6 to 10 words, 8 to 12 syllables. Short and punchy beats long.\n"
     "- Never write filler like 'yeah', 'let it ring', 'feel the vibe', or 'can't be beat'.\n"
     "- Keep it fit for a public stream: no slurs, no hate, no sexual content.\n"
     "{language}"
@@ -694,10 +695,10 @@ def load_asr():
     try:
         # the model is used directly (not through transformers' pipeline, which needs FFmpeg on Windows)
         from transformers import WhisperProcessor, WhisperForConditionalGeneration
-        dtype = torch.float16 if DEVICE == "cuda" else torch.float32
+        dtype = torch.float16 if ASR_DEVICE == "cuda" else torch.float32
         asr["proc"] = WhisperProcessor.from_pretrained(ASR_MODEL)
         model = WhisperForConditionalGeneration.from_pretrained(ASR_MODEL, torch_dtype=dtype, attn_implementation="eager")
-        asr["pipe"] = model.to(DEVICE).eval()
+        asr["pipe"] = model.to(ASR_DEVICE).eval()
         asr["dtype"] = dtype
         hear(np.zeros((SAMPLE_RATE, 2), dtype="float32"))     # warm up, and make sure it really works
         asr["state"] = "ready"
@@ -725,7 +726,7 @@ def hear(vocals):
         mono = mono * (0.7 / peak)
     proc, model = asr["proc"], asr["pipe"]
     feats = proc.feature_extractor(mono, sampling_rate=16000, return_tensors="pt").input_features
-    feats = feats.to(DEVICE, dtype=asr["dtype"])
+    feats = feats.to(ASR_DEVICE, dtype=asr["dtype"])
     with torch.no_grad():
         out = model.generate(feats, return_token_timestamps=True, num_frames=max(1, len(mono) // 160),
                              max_new_tokens=200)
@@ -753,8 +754,6 @@ def hear(vocals):
     for tids, st, en in groups:
         for w in norm_words(tok.decode(tids)):
             words.append((w, st, max(en, st + 0.05)))
-    if DEVICE == "cuda":
-        torch.cuda.empty_cache()
     return words
 
 
@@ -814,12 +813,13 @@ def match_lines(lines, heard):
         hit_idx = [i for (i, j) in pairs if lw[i][1] == k]
         hits = [heard[j] for (i, j) in pairs if lw[i][1] == k]
         last_j = max([j for (i, j) in pairs if lw[i][1] == k], default=-1)
-        need = max(1, total - 1) if total <= 3 else max(2, int(np.ceil(total * 0.5)))
+        need = max(1, total - 1) if total <= 3 else max(2, int(np.ceil(total * 0.4)))
         ok = total > 0 and len(hits) >= need
         key = [i for i in mine if len(lw[i][0]) >= 3 and lw[i][0] not in COMMON and len(owners[lw[i][0]]) == 1]
         if ok and len(key) >= 2:
-            ok = sum(1 for i in key if i in hit_idx) >= int(np.ceil(len(key) * 0.5))
-        info.append({"ok": ok, "start": hits[0][1] if hits else None, "end": hits[-1][2] if hits else None,
+            ok = sum(1 for i in key if i in hit_idx) >= max(1, int(np.ceil(len(key) * 0.34)))
+        tail = bool(mine) and any(i in hit_idx for i in mine[-2:])     # was the end of the line heard?
+        info.append({"ok": ok, "tail": tail, "start": hits[0][1] if hits else None, "end": hits[-1][2] if hits else None,
                      "last": last_j, "hits": len(hits), "words": total})
     return info
 
@@ -846,29 +846,35 @@ def finish_cut(vocals, cut):
 
 
 def cut_by_hearing(vocals, lines):
+    # the vocals always run about 4 bars (no gaps in the song); only lines Whisper really heard are shown
     heard = hear(vocals)
     write_log("    heard: " + " ".join(w[0] for w in heard))
     want = min(BARS_PER_PIECE, len(lines))
     info = match_lines(lines, heard)
     bar = BAR_SECONDS
-    last = -1
-    for k in range(min(len(lines), want + 1)):
-        if not info[k]["ok"]:
-            continue
-        if k < want and info[k]["end"] <= (BARS_PER_PIECE + 1.25) * bar:
-            last = k
-        elif k == want and last == want - 1 and info[k]["end"] <= (BARS_PER_PIECE + 0.25) * bar:
-            last = k
-    if last < 0:
-        return finish_cut(vocals, quiet_cut(vocals)), 0, [], None, info
-    end = info[last]["end"]
-    nxt = info[last]["last"] + 1
-    cut = end + 0.15
-    if nxt < len(heard):
-        cut = max(end + 0.02, min(cut, heard[nxt][1] - 0.03))   # never clip the start of the next word
-    shown = [lines[k] for k in range(last + 1) if info[k]["ok"]]
-    times = [round(info[k]["start"], 2) for k in range(last + 1) if info[k]["ok"]]
-    return finish_cut(vocals, cut), last + 1, shown, times, info
+    lo, hi, aim = (BARS_PER_PIECE - 0.5) * bar, (BARS_PER_PIECE + 1.25) * bar, BARS_PER_PIECE * bar + 0.3
+    # best place to stop: right after a line that was heard, as close to the 4-bar mark as possible
+    ends = [info[k]["end"] for k in range(len(lines)) if info[k]["ok"] and info[k]["tail"] and lo <= info[k]["end"] <= hi]
+    if ends:
+        cut = min(ends, key=lambda e: abs(e - aim))
+    else:
+        # otherwise at a gap between any two heard words, or the quietest spot
+        gaps = [heard[n][2] for n in range(len(heard) - 1)
+                if heard[n + 1][1] - heard[n][2] >= 0.15 and lo <= heard[n][2] <= hi]
+        cut = min(gaps, key=lambda e: abs(e - aim)) if gaps else quiet_cut(vocals)
+    nxt = [w[1] for w in heard if w[1] > cut]
+    cut_at = cut + 0.15
+    if nxt:
+        cut_at = max(cut + 0.02, min(cut_at, nxt[0] - 0.03))   # never clip the start of the next word
+    done = [k for k in range(len(lines)) if info[k]["ok"] and info[k]["end"] <= cut + 0.01]
+    if done:
+        used = done[-1] + 1                       # everything up to the last heard line is finished
+    else:
+        used = want                               # nothing recognisable: move on instead of getting stuck
+        write_log("    (nothing recognisable was sung - moving on)")
+    shown = [lines[k] for k in done]
+    times = [round(info[k]["start"], 2) for k in done]
+    return finish_cut(vocals, cut_at), used, shown, (times or None), info
 
 
 def cut_chunk(vocals, lines):
@@ -1006,7 +1012,8 @@ def make_music(lyrics, seed, bars):
     if USE_VOICE_REFERENCE and anchor is not None:
         if "ref_wav" not in anchor:
             buf = io.BytesIO()
-            sf.write(buf, anchor["mix"][:REFERENCE_BARS * BAR_SAMPLES], SAMPLE_RATE, format="WAV", subtype="PCM_16")
+            ref = anchor["mix"][:REFERENCE_BARS * BAR_SAMPLES] if REFERENCE_BARS else anchor["mix"]
+            sf.write(buf, ref, SAMPLE_RATE, format="WAV", subtype="PCM_16")
             anchor["ref_wav"] = buf.getvalue()
         files = {"ref_audio": ("reference.wav", anchor["ref_wav"], "audio/wav")}
     task = requests.post(ACE_URL + "/release_task", data=fields, files=files, timeout=60).json()
@@ -1049,7 +1056,6 @@ def build_piece(previous, word):
         bars = max(bars, LOOP_BARS + EXTRA_BARS)
     lyrics = ("[Chorus]\n" if section == "Chorus" else "[Verse]\n") + "\n".join(lines + extra)
     seed = SEED
-    deaf_retries = 0
     t_music = 0.0
     for attempt in range(3):
         t_a = time.time()
@@ -1067,12 +1073,7 @@ def build_piece(previous, word):
             offset = find_offset(beat[:PIECE_SAMPLES])
             vocals = shift(vocals, offset)
         cut_vocals, used, sung_lines, times, how = cut_chunk(vocals, lines)
-        if sung_lines or how != "heard" or deaf_retries >= 1 or attempt >= 2:
-            break
-        print("   (couldn't make out the lyrics, trying again...)")
-        write_log("    (nothing recognisable was sung, retrying)")
-        deaf_retries += 1
-        seed = seed + 1
+        break
     vocals = cut_vocals
     sung = used
 
