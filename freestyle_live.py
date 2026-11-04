@@ -684,7 +684,7 @@ def find_phrases(vocals):
 # ACE-Step doesn't always sing every line it's given. Whisper listens to the separated vocals,
 # and only the lines it actually hears are shown. Lines it skipped go back in the queue.
 
-asr = {"pipe": None, "state": "off"}
+asr = {"pipe": None, "proc": None, "dtype": None, "state": "off"}
 
 
 def load_asr():
@@ -692,11 +692,13 @@ def load_asr():
         return
     asr["state"] = "loading"
     try:
-        from transformers import pipeline
+        # the model is used directly (not through transformers' pipeline, which needs FFmpeg on Windows)
+        from transformers import WhisperProcessor, WhisperForConditionalGeneration
         dtype = torch.float16 if DEVICE == "cuda" else torch.float32
-        asr["pipe"] = pipeline("automatic-speech-recognition", model=ASR_MODEL, torch_dtype=dtype,
-                               device=0 if DEVICE == "cuda" else -1,
-                               model_kwargs={"attn_implementation": "eager"})
+        asr["proc"] = WhisperProcessor.from_pretrained(ASR_MODEL)
+        model = WhisperForConditionalGeneration.from_pretrained(ASR_MODEL, torch_dtype=dtype, attn_implementation="eager")
+        asr["pipe"] = model.to(DEVICE).eval()
+        asr["dtype"] = dtype
         hear(np.zeros((SAMPLE_RATE, 2), dtype="float32"))     # warm up, and make sure it really works
         asr["state"] = "ready"
         print("Lyric checker ready (" + ASR_MODEL + ")")
@@ -721,17 +723,38 @@ def hear(vocals):
     peak = float(np.abs(mono).max()) if len(mono) else 0.0
     if peak > 1e-4:
         mono = mono * (0.7 / peak)
-    out = asr["pipe"]({"raw": mono, "sampling_rate": 16000}, return_timestamps="word")
-    words = []
-    for c in out.get("chunks") or []:
-        ts = c.get("timestamp") or (None, None)
-        st, en = ts[0], ts[1]
-        if st is None:
+    proc, model = asr["proc"], asr["pipe"]
+    feats = proc.feature_extractor(mono, sampling_rate=16000, return_tensors="pt").input_features
+    feats = feats.to(DEVICE, dtype=asr["dtype"])
+    with torch.no_grad():
+        out = model.generate(feats, return_token_timestamps=True, num_frames=max(1, len(mono) // 160),
+                             max_new_tokens=200)
+    ids = out["sequences"][0].tolist()
+    stamps = out["token_timestamps"][0].tolist()
+    if len(stamps) != len(ids):              # line them up from the end if the lengths differ
+        k = min(len(ids), len(stamps))
+        ids, stamps = ids[-k:], stamps[-k:]
+    tok = proc.tokenizer
+    special = tok.eos_token_id
+    # group the word pieces into words; a piece starting with a space starts a new word
+    groups = []
+    for n, tid in enumerate(ids):
+        if tid >= special:
             continue
-        if en is None:
-            en = st + 0.3
-        for w in norm_words(c.get("text", "")):
-            words.append((w, float(st), float(en)))
+        piece = tok.convert_ids_to_tokens(tid)
+        st = float(stamps[n])
+        en = float(stamps[n + 1]) if n + 1 < len(stamps) else st + 0.3
+        if not groups or piece.startswith("\u0120") or piece.startswith(" "):
+            groups.append([[tid], st, en])
+        else:
+            groups[-1][0].append(tid)
+            groups[-1][2] = en
+    words = []
+    for tids, st, en in groups:
+        for w in norm_words(tok.decode(tids)):
+            words.append((w, st, max(en, st + 0.05)))
+    if DEVICE == "cuda":
+        torch.cuda.empty_cache()
     return words
 
 

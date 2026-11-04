@@ -176,6 +176,8 @@ Renamed the project to **Freestyle AI** and made the site feel more alive.
 - The chunk is cut right after the last line that was really sung, without clipping the next word. Only heard lines are shown, at the times they were heard. Lines that come after the cut go back in the queue, and if nothing recognisable was sung, the chunk is made again with a new seed.
 - English only for now. Other languages still count the pauses, and so does English if Whisper can't load.
 - **Faster clips.** Only the first 4 bars of the first clip are sent as the voice reference, instead of the whole 27-second clip.
+- The first try at loading Whisper went through Transformers' speech pipeline, which needs FFmpeg on Windows and failed, so the check silently fell back to counting pauses. Whisper's model is now called directly, with no FFmpeg needed.
+- The lyrics panel scrolls: scroll up to read back through the song, and a "Back to live" button jumps to the current line. The highlight also waits for the speakers' output delay and lights each line when its first word is sung, so it no longer runs ahead.
 - Story mode no longer shows the model an example verse, the new-word prompt is reworded, and lines that echo the instructions are filtered out.
 
 ## What I'd try next
