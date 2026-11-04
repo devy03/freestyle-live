@@ -190,6 +190,14 @@ Once Whisper worked, the log showed what was really coming out: lots of "yeah ye
 - A line only counts as finished if its last words were heard, so the cut never lands mid-line. Matching is a little looser, since Whisper mishears fast rap.
 - Lines are capped at 11 words, because long lines don't fit in one bar and get mumbled.
 
+## v24: A locked sound and a locked lyric format
+
+The log showed two separate problems. The R&B style made the engine sing long notes ("oh oh oh…"), which stretched lines past the bar and got them chopped. And Whisper was getting lost on its own, "hearing" nothing but "yeah yeah yeah", so good chunks were thrown out.
+
+- **Clear rap (locked)** is the new default sound: one fixed caption tuned for a single rapper saying every word on the beat. The energy, mood, flow, and production sliders sit out while it's picked.
+- **Locked lyric format:** 7–10 words a line, no commas or dashes inside a line, and rhymes in pairs on the last word. The music engine gets the words with the punctuation stripped out.
+- **Whisper gets the expected lyrics as a hint,** which makes it much better at hearing fast rap. If it still comes back with one word over and over, or hears almost nothing while someone is clearly rapping, that chunk falls back to counting pauses instead of hiding every line.
+
 ## What I'd try next
 
 - Run on a bigger GPU (Qwen3 8B or larger for lyrics, ACE-Step XL for sound) through UIC's research cluster or a free notebook GPU, to see how much better it gets

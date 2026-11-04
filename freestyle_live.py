@@ -94,6 +94,7 @@ reset_requested = False
 
 STUDIO_FILE = os.path.join(HERE, "studio_settings.json")
 GENRES = {
+    "clear": ("Clear rap (locked)", "hip hop, rap"),
     "polished": ("Polished rap", "polished studio hip hop, punchy drums, deep bass, soulful piano loop"),
     "boombap": ("Boom bap", "boom bap hip hop, dusty drums, vinyl samples, jazzy chops"),
     "trap": ("Trap", "trap, booming 808 bass, crisp rolling hi-hats"),
@@ -123,7 +124,7 @@ WORD_USE = {
 }
 DEFAULT_STUDIO = {
     "model": OLLAMA_MODEL, "persona": "",
-    "genre": "polished", "voice": "male", "energy": 60, "mood": 45, "flow": 50, "polish": 85,
+    "genre": "clear", "voice": "male", "energy": 60, "mood": 45, "flow": 50, "polish": 85,
     "bpm": BPM, "extra_tags": "",
     "creativity": 100, "word_use": "natural", "rhyme": "couplets", "tone": "mixed", "language": "en",
     "verses_between_hooks": 2, "keep_rapping": True,
@@ -202,7 +203,19 @@ def persona():
     return studio["persona"].strip() or DEFAULT_PERSONA
 
 
+# The locked sound: a fixed caption tuned for one clear rapper saying every word on the beat.
+# The energy / mood / flow / production sliders are ignored while it's picked.
+LOCKED_CAPTION = ("hip hop, rap, solo {voice} rapper, clear enunciated rap vocals, every word clearly pronounced, "
+                  "steady confident flow on the beat, punchy drums, deep bass, simple piano loop, clean mix, "
+                  "dry upfront vocals throughout, {bpm} bpm")
+
+
 def build_caption(s):
+    if s["genre"] == "clear":
+        cap = LOCKED_CAPTION.format(voice="female" if s["voice"] == "female" else "male", bpm=s["bpm"])
+        if s["extra_tags"].strip():
+            cap = cap.replace(", clean mix", ", " + s["extra_tags"].strip() + ", clean mix")
+        return cap
     parts = [GENRES[s["genre"]][1]]
     sung = s["genre"] == "rnb"
     parts.append(("female " if s["voice"] == "female" else "male ") + ("singer" if sung else "rapper"))
@@ -345,6 +358,13 @@ def to_lines(text):
     return lines
 
 
+def sing_text(line):
+    # what the music engine gets: no quotes or stray punctuation, just the words
+    t = line.replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", "").replace("\u201d", "").replace('"', "")
+    t = re.sub(r"[,;:.!?()\[\]\u2014\u2013-]+", " ", t)
+    return " ".join(t.split())
+
+
 def remove_repeats(lines):
     seen = []
     for line in story["history"][-16:] + [q["text"] for q in story["queue"]]:
@@ -481,7 +501,9 @@ WRITER_RULES = (
     "no 'matrix', 'algorithm', 'cosmic' or 'interstellar' unless the topic is about that.\n"
     "- Land a punchline every two lines: a double meaning, a twist, or a joke that pays off on the last word.\n"
     "- {rhyme}\n"
-    "- Each line is one bar: 6 to 10 words, 8 to 12 syllables. Short and punchy beats long.\n"
+    "- Each line is one bar: 7 to 10 words, 8 to 12 syllables, simple words that are easy to say fast. "
+    "No commas or dashes inside a line.\n"
+    "- Lines rhyme in pairs: line 1 with 2, line 3 with 4, and so on. The rhyme is on the last word.\n"
     "- Never write filler like 'yeah', 'let it ring', 'feel the vibe', or 'can't be beat'.\n"
     "- Keep it fit for a public stream: no slurs, no hate, no sexual content.\n"
     "{language}"
@@ -716,8 +738,9 @@ def asr_on():
     return asr["state"] == "ready" and studio["language"] == "en"
 
 
-def hear(vocals):
-    # returns [(word, start, end), ...] in seconds
+def hear(vocals, expected=""):
+    # returns [(word, start, end), ...] in seconds. The expected lyrics are given to Whisper as a hint,
+    # which makes it far better at hearing fast rap (it still can't hear words that weren't sung)
     vocals = vocals[:int((BARS_PER_PIECE + 2) * BAR_SAMPLES)]    # only the part we might keep (Whisper takes 30 s max)
     mono = torch.from_numpy(np.ascontiguousarray(vocals.mean(axis=1))).float()
     mono = julius.resample_frac(mono, SAMPLE_RATE, 16000).numpy()
@@ -728,8 +751,11 @@ def hear(vocals):
     feats = proc.feature_extractor(mono, sampling_rate=16000, return_tensors="pt").input_features
     feats = feats.to(ASR_DEVICE, dtype=asr["dtype"])
     with torch.no_grad():
+        extra = {}
+        if expected:
+            extra["prompt_ids"] = torch.tensor(proc.tokenizer.get_prompt_ids(expected[-600:])).to(ASR_DEVICE)
         out = model.generate(feats, return_token_timestamps=True, num_frames=max(1, len(mono) // 160),
-                             max_new_tokens=200)
+                             max_new_tokens=200, **extra)
     ids = out["sequences"][0].tolist()
     stamps = out["token_timestamps"][0].tolist()
     if len(stamps) != len(ids):              # line them up from the end if the lengths differ
@@ -737,6 +763,10 @@ def hear(vocals):
         ids, stamps = ids[-k:], stamps[-k:]
     tok = proc.tokenizer
     special = tok.eos_token_id
+    sot = tok.convert_tokens_to_ids("<|startoftranscript|>")
+    if sot in ids:                       # drop the hint if it came back in front of the transcript
+        k = len(ids) - 1 - ids[::-1].index(sot)
+        ids, stamps = ids[k:], stamps[k:]
     # group the word pieces into words; a piece starting with a space starts a new word
     groups = []
     for n, tid in enumerate(ids):
@@ -845,10 +875,26 @@ def finish_cut(vocals, cut):
     return np.ascontiguousarray(out)
 
 
+def trustworthy(heard, vocals, lines):
+    # Whisper sometimes "hears" one word over and over (yeah yeah yeah...) when it's lost
+    words = [w[0] for w in heard]
+    lyric = set(norm_words(" ".join(lines)))
+    if loudness(vocals) > 0.02 and len(words) < 4:
+        return False                     # clearly singing, but it heard almost nothing
+    if len(words) >= 8:
+        other = [w for w in words if w not in lyric]          # a hook repeating its own words is fine
+        top = max([other.count(w) for w in set(other)] or [0])
+        if top > 0.35 * len(words):
+            return False
+    return True
+
+
 def cut_by_hearing(vocals, lines):
     # the vocals always run about 4 bars (no gaps in the song); only lines Whisper really heard are shown
-    heard = hear(vocals)
+    heard = hear(vocals, " ".join(sing_text(l) for l in lines))
     write_log("    heard: " + " ".join(w[0] for w in heard))
+    if not trustworthy(heard, vocals, lines):
+        raise ValueError("unsure")
     want = min(BARS_PER_PIECE, len(lines))
     info = match_lines(lines, heard)
     bar = BAR_SECONDS
@@ -883,10 +929,12 @@ def cut_chunk(vocals, lines):
         try:
             v, used, shown, times, info = cut_by_hearing(vocals, lines)
             return v, used, shown, times, "heard"
+        except ValueError:
+            write_log("    (the checker wasn't sure - using pauses for this chunk)")
         except Exception as e:
             write_log("asr error: " + str(e)[:300])
     v, sung, times = cut_by_pauses(vocals, len(lines))
-    return v, sung, lines[:sung], times, "pauses"
+    return v, sung, lines[:sung], times, ("unsure" if asr_on() else "pauses")
 
 
 def cut_by_pauses(vocals, lines_given):
@@ -1054,7 +1102,7 @@ def build_piece(previous, word):
     bars = len(lines) + len(extra)
     if first:
         bars = max(bars, LOOP_BARS + EXTRA_BARS)
-    lyrics = ("[Chorus]\n" if section == "Chorus" else "[Verse]\n") + "\n".join(lines + extra)
+    lyrics = ("[Chorus]\n" if section == "Chorus" else "[Verse]\n") + "\n".join(sing_text(l) for l in lines + extra)
     seed = SEED
     t_music = 0.0
     for attempt in range(3):

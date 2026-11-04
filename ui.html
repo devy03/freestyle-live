@@ -1311,6 +1311,12 @@
   }
   function previewCaption(st) {
     // mirrors the server's caption builder so the box updates while you drag
+    if (st.genre === "clear") {
+      let cap = `hip hop, rap, solo ${st.voice === "female" ? "female" : "male"} rapper, clear enunciated rap vocals, every word clearly pronounced, ` +
+        `steady confident flow on the beat, punchy drums, deep bass, simple piano loop, clean mix, dry upfront vocals throughout, ${st.bpm} bpm`;
+      if ((st.extra_tags || "").trim()) cap = cap.replace(", clean mix", ", " + st.extra_tags.trim() + ", clean mix");
+      return cap;
+    }
     const g = { polished: "polished studio hip hop, punchy drums, deep bass, soulful piano loop", boombap: "boom bap hip hop, dusty drums, vinyl samples, jazzy chops",
                 trap: "trap, booming 808 bass, crisp rolling hi-hats", lofi: "lo-fi hip hop, mellow keys, soft drums, vinyl crackle",
                 drill: "drill, sliding 808s, dark piano, sharp hi-hats", rnb: "r&b, smooth sung vocals, warm keys, laid back groove" };
@@ -1332,6 +1338,8 @@
     const changed = cap !== activeCaption;
     $("captionBox").innerHTML = changed ? `<b>Next beat:</b> ${esc(cap)}` : `<b>Playing now:</b> ${esc(cap)}`;
     $("captionBox").classList.toggle("changed", changed);
+    const locked = cfg.studio.genre === "clear";
+    ["energy", "mood", "flow", "polish"].forEach((k) => { const c = $(k).closest(".ctl"); c.style.opacity = locked ? ".4" : ""; c.title = locked ? "Not used by the locked sound" : ""; });
     $("newBeat").disabled = !cfg.host;
     $("newBeat").textContent = changed ? "Make a new beat with this sound" : "Make a fresh beat";
   }
