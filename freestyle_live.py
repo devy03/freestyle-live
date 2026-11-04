@@ -93,7 +93,8 @@ GENRES = {
     "drill": ("Drill", "drill, sliding 808s, dark piano, sharp hi-hats"),
     "rnb": ("R&B", "r&b, smooth sung vocals, warm keys, laid back groove"),
 }
-LANGUAGES = {"en": "English", "es": "Spanish", "ja": "Japanese", "zh": "Chinese (Mandarin)", "hi": "Hindi",
+LANGUAGES = {"en": "English", "es": "Spanish", "ja": "Japanese", "zh": "Chinese (Mandarin)",
+             "hi-latn": "Hindi in English letters (din raat)", "hi": "Hindi in Devanagari",
              "ko": "Korean", "fr": "French", "pt": "Portuguese", "de": "German"}
 TONES = {
     "mixed": "a mix of punchlines, a little story, and confident flexes",
@@ -373,7 +374,7 @@ EXAMPLE_HOOK = [
 STYLE_EXAMPLE = EXAMPLE_VERSE + EXAMPLE_HOOK
 
 
-LATIN_LANGS = ("en", "es", "fr", "pt", "de")
+LATIN_LANGS = ("en", "es", "fr", "pt", "de", "hi-latn")
 
 
 def right_script(line):
@@ -404,7 +405,19 @@ def clean_lines(lines, dedupe=True):
     return remove_repeats(kept) if dedupe else kept
 
 
+ROMAN_HINDI = ("Hindi spelled with English letters, the way people text in Hindi (like 'din raat', "
+               "'dil se', 'tu hi meri jaan'). Use simple sound-it-out spelling: 'aa' for long a, 'ee' for long i, "
+               "no apostrophes inside words. Never use Devanagari, and don't switch to English sentences")
+
+
+def ace_language():
+    # what the music engine should sing in
+    return "hi" if studio["language"] == "hi-latn" else studio["language"]
+
+
 def language_rule():
+    if studio["language"] == "hi-latn":
+        return "- Write every bar in " + ROMAN_HINDI + ". An English word here and there is fine, like real Hindi rap.\n"
     if studio["language"] == "en":
         return ("- Write every bar in English, even if the topic word is from another language "
                 "(keep that word as it is and explain it with English bars).\n")
@@ -474,6 +487,8 @@ def language_task():
     lang = studio["language"]
     if lang == "en":
         return ""
+    if lang == "hi-latn":
+        return "\nWrite every line in " + ROMAN_HINDI + "."
     return "\nWrite every line in " + SCRIPTS.get(lang, LANGUAGES[lang]) + ". Not a single line in English."
 
 
@@ -667,7 +682,7 @@ def make_music(lyrics, seed):
     fields = {
         "prompt": build_caption(active_style), "lyrics": lyrics, "thinking": "false",
         "use_cot_caption": "false", "use_cot_language": "false",
-        "vocal_language": studio["language"], "bpm": str(BPM), "key_scale": key_for(active_style), "time_signature": "4",
+        "vocal_language": ace_language(), "bpm": str(BPM), "key_scale": key_for(active_style), "time_signature": "4",
         "audio_duration": str(PIECE_SECONDS + EXTRA_SECONDS),
         "batch_size": "1", "inference_steps": "8",
         "use_random_seed": "false", "seed": str(seed), "audio_format": "wav",
