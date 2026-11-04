@@ -151,6 +151,22 @@ Renamed the project to **Freestyle AI** and made the site feel more alive.
 
 ![The show settings](screenshots/show-settings.png)
 
+## v19–v20: Smarter lyrics, more languages
+
+- Every verse was planned first (one clear angle plus three punchlines), with rules that put meaning before fancy rhymes and an original example verse to aim at. That fixed the word salad ("algorithms bleed", "interstellar station").
+- Words in any script, Chinese added, and **Hindi in English letters** ("din raat"), which ACE-Step pronounces more naturally than Devanagari. Lines in the wrong language get dropped.
+- Fixed a freeze: a bigger prompt window for the lyric model took GPU memory from the music engine.
+
+## v21: Story mode in 4-bar chunks
+
+**Problem.** Lines kept disappearing, often the rhyme at the end of a verse. ACE-Step doesn't sing exactly one line per bar, so when an 8-line verse ran long, the cut at the 8-bar mark chopped off the last line or two, and they were never sung.
+
+**Fix.**
+- **Chunks are 4 bars (about 10 seconds)** instead of 8, so each one is faster to make and a new word comes in sooner.
+- **The script finds each sung line** in the vocals (runs of voice between breaths) and cuts right after the last finished line. Any line that didn't make it is carried to the front of the next chunk instead of being lost. The real line timings also go to the browser, so the lyric highlight follows the voice instead of guessing one line per bar.
+- **One continuous story.** The song keeps a running story (who it's about and what's happening). Lines are written 8 at a time, continuing straight on from the last bar, and a new word gets woven into the story within the next two bars instead of starting a new verse.
+- The lyrics panel scrolls through the whole song instead of replacing the text every verse.
+
 ## What I'd try next
 
 - Run on a bigger GPU (Qwen3 8B or larger for lyrics, ACE-Step XL for sound) through UIC's research cluster or a free notebook GPU, to see how much better it gets

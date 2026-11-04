@@ -33,8 +33,10 @@ ACE_URL = "http://127.0.0.1:8001"
 BPM = 90                    # starting tempo; the Studio settings can change it with a new beat
 KEY = "A Minor"
 SEED = 1234
-BARS_PER_PIECE = 8          # 8 bars = 8 lines; also the length of the looping beat
-EXTRA_BARS = 4              # made and thrown away so the song never wraps up early
+BARS_PER_PIECE = 4          # each chunk is 4 bars = 4 lines (about 10.7 s at 90 BPM)
+EXTRA_BARS = 2              # 2 more lines are sung and thrown away so the song never wraps up early
+LOOP_BARS = 8               # the nonstop beat loop is 8 bars, taken from the first clip
+STORY_BATCH = 8             # lines written per lyric request (two chunks' worth)
 USE_VOICE_REFERENCE = True  # keep the same rapper by referencing the first piece
 VOCAL_VOLUME = 1.0
 BEAT_VOLUME = 0.9
@@ -54,6 +56,8 @@ def set_bpm(bpm):
     EXTRA_SECONDS = EXTRA_BARS * BAR_SECONDS
     PIECE_SAMPLES = BARS_PER_PIECE * BAR_SAMPLES
     BEAT_SAMPLES = int(round(60 / BPM * SAMPLE_RATE))
+    global LOOP_SAMPLES
+    LOOP_SAMPLES = LOOP_BARS * BAR_SAMPLES
 
 
 set_bpm(BPM)
@@ -337,7 +341,7 @@ def to_lines(text):
 
 def remove_repeats(lines):
     seen = []
-    for line in recent_lines:
+    for line in story["history"][-16:] + [q["text"] for q in story["queue"]]:
         seen.append(simple(line))
     kept = []
     for line in lines:
@@ -481,35 +485,21 @@ EXAMPLE_TEXT_EN = ("Here is the level you aim for. This verse is about laundry -
 EXAMPLE_TEXT_HI = ("Here is the level and the exact writing style you aim for: Hindi in English letters. This verse is about "
                    "chai - every line is about the topic, easy to follow, and it rhymes in pairs (garam/gham, zyada/iraada, "
                    "baat/halaat):\n" + "\n".join(HINDI_EXAMPLE_VERSE) + "\n")
-used_angles = []
+# the running story: everything is one continuous song
+story = {"premise": None, "queue": [], "history": [], "since_hook": 0}
+# queue: lines written but not sung yet, each {"text", "word"}; history: lines already scheduled to play
 
 
-def plan_verse(subject, fresh):
-    # step 1: decide what this verse is actually about, so the bars have a point
-    avoid = ""
-    if used_angles:
-        avoid = "Already used (pick something different): " + "; ".join(used_angles[-4:]) + "\n"
-    user = ("Topic: \"" + subject + "\"\n" + avoid +
-            "If the topic has several meanings, use the one most people would mean.\n"
-            "Plan an 8-bar rap verse that is " + TONES[studio["tone"]] + ".\n"
-            "Answer in exactly this format, short:\n"
-            "ANGLE: <one sentence: the clear idea or mini-story of the verse>\n"
-            "PUNCH 1: <a wordplay or double meaning on the topic>\n"
-            "PUNCH 2: <another one>\n"
-            "PUNCH 3: <another one>")
-    text = llm("You are a rap songwriter planning a verse. Be specific and clever.", user, temperature=0.8, max_tokens=180)
-    plan = []
-    angle = ""
+def parse_story(text):
+    premise = None
+    body = []
     for line in text.split("\n"):
-        line = line.strip().strip("*").strip()
-        if line.upper().startswith("ANGLE"):
-            angle = line.split(":", 1)[-1].strip()
-        if line.upper().startswith(("ANGLE", "PUNCH")) and ":" in line:
-            plan.append(line)
-    if angle:
-        used_angles.append(angle[:90])
-        del used_angles[:-8]
-    return "\n".join(plan)
+        s = line.strip().strip("*").strip()
+        if s.upper().startswith("STORY") and ":" in s:
+            premise = s.split(":", 1)[1].strip()
+        else:
+            body.append(line)
+    return premise, "\n".join(body)
 
 
 def system_prompt():
@@ -531,47 +521,55 @@ def language_task():
     return "\nWrite every line in " + SCRIPTS.get(lang, LANGUAGES[lang]) + ". Not a single line in English."
 
 
-def write_verse(word):
-    n = str(TOTAL_LINES)
-    subject = word or str(topic)
-    plan = plan_verse(subject, bool(word))
-    flow = ""
-    if recent_lines:
-        flow = ("The song so far ended with:\n" + "\n".join(recent_lines[-2:]) + "\n"
-                "Start fresh from there - don't reuse those images.\n")
-    if word:
-        say = WORD_USE[studio["word_use"]].replace("{w}", word)
-        task = ("New topic: \"" + word + "\". Write " + n + " bars about it. " + say +
-                " The first bar makes it obvious the topic changed.")
+def write_story(new_word=None):
+    # writes the next STORY_BATCH lines of one continuous story; a new word gets woven in right away
+    n = str(STORY_BATCH)
+    if story["premise"] is None:
+        subject = new_word or str(topic)
+        user = ("Start a story-driven rap song. The first topic is \"" + subject + "\". "
+                "If it has several meanings, use the one most people would mean.\n"
+                "First line: STORY: <one sentence - who this is about and what's happening>.\n"
+                "Then write the first " + n + " bars of the story. The topic shows up in the first two bars. "
+                + WORD_USE[studio["word_use"]].replace("{w}", subject) +
+                " Each bar is one line. No titles or notes." + language_task())
     else:
-        task = "Keep going on \"" + subject + "\" with " + n + " new bars from a new angle."
-    user = (flow + task + "\n\nYour plan:\n" + plan +
-            "\n\nUse the plan and its punchlines. Output ONLY the " + n + " bars, one per line. No titles or notes."
-            + language_task())
-
+        sofar = "\n".join(story["history"][-6:]) or "(nothing yet)"
+        user = ("The story so far: " + story["premise"] + "\n"
+                "The last bars that were rapped:\n" + sofar + "\n\n")
+        if new_word:
+            user += ("Someone just threw a new word into the song: \"" + new_word + "\". "
+                     "Bring it into the story in the next two bars - it should change what happens or drive it, "
+                     "not just get mentioned. " + WORD_USE[studio["word_use"]].replace("{w}", new_word) + "\n"
+                     "If the story turns, first write a new line STORY: <one sentence>.\n")
+        else:
+            user += "Keep the story moving forward - something new happens, with a punchline every two bars.\n"
+        user += ("Write the next " + n + " bars, continuing straight on from the last bar (same flow, no recap). "
+                 "Each bar is one line. No titles or notes." + language_task())
     best = []
-    last_raw = []
+    best_premise = None
+    raw_last = []
     for attempt in range(3):
-        raw = to_lines(llm(system_prompt(), user))
-        last_raw = raw
+        premise, body = parse_story(llm(system_prompt(), user))
+        raw = to_lines(body)
+        raw_last = raw
         lines = clean_lines(raw)
-        has_word = (not word) or any(word.lower() in l.lower() for l in lines[:BARS_PER_PIECE])
-        if len(lines) >= BARS_PER_PIECE and has_word:
-            best = lines
+        has_word = (not new_word) or any(new_word.lower() in l.lower() for l in lines[:4])
+        if len(lines) >= 4 and has_word:
+            best, best_premise = lines, premise
             break
-        if len(lines) > len(best) and (has_word or not best):
-            best = lines
+        if len(lines) > len(best):
+            best, best_premise = lines, premise
     if len(best) < 4:
-        # the model kept writing the wrong language; better a verse than silence
-        best = clean_lines(last_raw, check_script=False)
-    for extra_try in range(2):
-        if len(best) >= TOTAL_LINES:
-            break
-        more = [l for l in clean_lines(to_lines(llm(system_prompt(), user))) if l not in best]
-        if not more:
-            break
-        best = best + more
-    return best[:TOTAL_LINES]
+        best = clean_lines(raw_last, check_script=False)
+    if best_premise:
+        story["premise"] = best_premise[:200]
+    elif story["premise"] is None:
+        story["premise"] = "A rapper's story about " + str(new_word or topic)
+    tag = new_word
+    for line in best[:STORY_BATCH]:
+        story["queue"].append({"text": line, "word": tag})
+        tag = None
+    return len(best)
 
 
 def get_hook(about):
@@ -634,20 +632,74 @@ def separate(audio):
     return fit(vocals.astype("float32"), SAMPLE_RATE, n), fit(beat.astype("float32"), SAMPLE_RATE, n)
 
 
-def smart_cut(vocals):
-    # end the vocals in a gap between words near the 8-bar mark, instead of mid-word
-    hop = 960   # 20ms
-    frames = len(vocals) // hop
-    energy = np.sqrt((vocals[:frames * hop].mean(axis=1).reshape(frames, hop) ** 2).mean(axis=1))
-    smooth = np.convolve(energy, np.ones(10) / 10, mode="same")
-    lo = int((PIECE_SAMPLES - BAR_SAMPLES * 0.75) / hop)
-    hi = min(int((PIECE_SAMPLES + BAR_SAMPLES * 1.0) / hop), frames - 1)
-    cut_frame = lo + int(np.argmin(smooth[lo:hi]))
-    cut = cut_frame * hop
-    out = vocals[:cut].copy()
+def find_phrases(vocals):
+    # where each sung line is: runs of voice separated by short breaths
+    hop = 960   # 20 ms
+    mono = vocals.mean(axis=1)
+    frames = len(mono) // hop
+    if frames < 10:
+        return []
+    energy = np.sqrt((mono[:frames * hop].reshape(frames, hop) ** 2).mean(axis=1))
+    smooth = np.convolve(energy, np.ones(3) / 3, mode="same")
+    loud = np.percentile(smooth, 95)
+    if loud <= 1e-5:
+        return []
+    voiced = smooth > loud * 0.14
+    phrases = []
+    start = None
+    quiet = 0
+    for i in range(frames):
+        if voiced[i]:
+            if start is None:
+                start = i
+            quiet = 0
+        elif start is not None:
+            quiet += 1
+            if quiet >= 7:                      # 140 ms of quiet ends a line
+                end = i - quiet + 1
+                if end - start >= 12:           # ignore blips under 240 ms
+                    phrases.append((start * hop / SAMPLE_RATE, end * hop / SAMPLE_RATE))
+                start = None
+                quiet = 0
+    if start is not None and frames - start >= 12:
+        phrases.append((start * hop / SAMPLE_RATE, frames * hop / SAMPLE_RATE))
+    return phrases
+
+
+def cut_chunk(vocals, lines_given):
+    # decide where this chunk ends and how many lines actually got sung, so no line is lost
+    want = min(BARS_PER_PIECE, lines_given)
+    bar = BAR_SECONDS
+    phrases = find_phrases(vocals)
+    sung = None
+    cut = None
+    times = None
+    if len(phrases) >= want and phrases[want - 1][1] <= (BARS_PER_PIECE + 1.25) * bar:
+        sung = want
+        # take one more line if it's already done before the chunk would end anyway
+        if len(phrases) > want and lines_given > want and phrases[want][1] <= (BARS_PER_PIECE + 0.25) * bar:
+            sung = want + 1
+        cut = phrases[sung - 1][1] + 0.08
+        times = [round(p[0], 2) for p in phrases[:sung]]
+    else:
+        # couldn't tell the lines apart: cut in the quietest spot near the 4-bar mark
+        hop = 960
+        mono = vocals.mean(axis=1)
+        frames = len(mono) // hop
+        energy = np.sqrt((mono[:frames * hop].reshape(frames, hop) ** 2).mean(axis=1))
+        smooth = np.convolve(energy, np.ones(10) / 10, mode="same")
+        lo = int((BARS_PER_PIECE - 0.5) * bar * SAMPLE_RATE / hop)
+        hi = min(int((BARS_PER_PIECE + 1.0) * bar * SAMPLE_RATE / hop), frames - 1)
+        cut = (lo + int(np.argmin(smooth[lo:hi]))) * hop / SAMPLE_RATE
+        done = [p for p in phrases if p[1] <= cut]
+        sung = len(done) if 1 <= len(done) <= want else want
+        if len(done) == sung and sung > 0:
+            times = [round(p[0], 2) for p in done]
+    n = min(int(cut * SAMPLE_RATE), len(vocals))
+    out = vocals[:n].copy()
     fade = min(2400, len(out))
     out[-fade:] = out[-fade:] * np.linspace(1, 0, fade, dtype="float32")[:, None]
-    return np.ascontiguousarray(out)
+    return np.ascontiguousarray(out), sung, times
 
 
 def hit_curve(audio):
@@ -724,12 +776,12 @@ def wait_for_result(task_id):
             raise Exception("ACE-Step failed: " + str(item.get("result")))
 
 
-def make_music(lyrics, seed):
+def make_music(lyrics, seed, bars):
     fields = {
         "prompt": build_caption(active_style), "lyrics": lyrics, "thinking": "false",
         "use_cot_caption": "false", "use_cot_language": "false",
         "vocal_language": ace_language(), "bpm": str(BPM), "key_scale": key_for(active_style), "time_signature": "4",
-        "audio_duration": str(PIECE_SECONDS + EXTRA_SECONDS),
+        "audio_duration": str(bars * BAR_SECONDS),
         "batch_size": "1", "inference_steps": "8",
         "use_random_seed": "false", "seed": str(seed), "audio_format": "wav",
     }
@@ -740,39 +792,46 @@ def make_music(lyrics, seed):
         files = {"ref_audio": ("reference.wav", buf.getvalue(), "audio/wav")}
     task = requests.post(ACE_URL + "/release_task", data=fields, files=files, timeout=60).json()
     audio, sr = wait_for_result(task["data"]["task_id"])
-    return fit(audio, sr, PIECE_SAMPLES + 2 * BAR_SAMPLES)
+    return fit(audio, sr, bars * BAR_SAMPLES)
 
 
 def build_piece(previous, word):
-    global anchor, recent_lines, beat_loop
+    global anchor, beat_loop
     start = time.time()
+    first = beat_loop is None
 
-    if word or previous is None:
-        section = "Verse"
-        verses = studio["verses_between_hooks"] if word else 1
-    elif previous["verses"] >= studio["verses_between_hooks"]:
+    # a hook every few verses, but never right after a new word (the word gets its verse first)
+    hook_every = 2 * studio["verses_between_hooks"]
+    if not first and not word and story["since_hook"] >= hook_every and topic:
         section = "Chorus"
-        verses = 0
+        hook = get_hook(topic)
+        lines = hook[:4]
+        extra = hook[:EXTRA_BARS]
     else:
         section = "Verse"
-        verses = previous["verses"] + 1
-
-    if section == "Chorus":
-        hook = get_hook(topic)
-        keep = hook + hook
-        lyrics = "[Chorus]\n" + "\n".join(keep) + "\n[Verse]\n" + "\n".join(recent_lines[-EXTRA_BARS:])
-    else:
-        lines = write_verse(word)
-        keep = lines[:BARS_PER_PIECE]
-        extra = lines[BARS_PER_PIECE:]
-        lyrics = "[Verse]\n" + "\n".join(keep)
-        if extra:
-            lyrics = lyrics + "\n[Chorus]\n" + "\n".join(extra)
+        if word:
+            story["queue"].clear()                 # the old plan is out; the new word changes the story
+            story["since_hook"] = min(story["since_hook"], max(hook_every - 2, 0))   # the word gets 8 bars before a hook
+            write_story(word)
+        need = (2 * BARS_PER_PIECE if first else BARS_PER_PIECE) + EXTRA_BARS
+        tries = 0
+        while len(story["queue"]) < need and tries < 2:
+            write_story(None)
+            tries += 1
+        take = 2 * BARS_PER_PIECE if first else BARS_PER_PIECE
+        lines = [q["text"] for q in story["queue"][:take]]
+        extra = [q["text"] for q in story["queue"][take:take + EXTRA_BARS]]
+        if not lines:
+            raise Exception("the lyric model didn't write any usable lines")
     t_lyrics = time.time() - start
 
+    bars = len(lines) + len(extra)
+    if first:
+        bars = max(bars, LOOP_BARS + EXTRA_BARS)
+    lyrics = ("[Chorus]\n" if section == "Chorus" else "[Verse]\n") + "\n".join(lines + extra)
     seed = SEED
     for attempt in range(3):
-        mix = make_music(lyrics, seed)
+        mix = make_music(lyrics, seed, bars)
         t_music = time.time() - start - t_lyrics
         vocals, beat = separate(mix)
         if loudness(vocals) > 0.02:
@@ -780,32 +839,41 @@ def build_piece(previous, word):
         print("   (vocals came out quiet, retrying...)")
         seed = seed + 1
 
-    beat = beat[:PIECE_SAMPLES]
     offset = 0
-    if beat_loop is None:
-        beat_loop = beat          # the first piece's beat becomes the nonstop beat
+    if first:
+        beat_loop = beat[:LOOP_SAMPLES]           # the first clip's beat becomes the nonstop 8-bar loop
     else:
-        offset = find_offset(beat)
+        offset = find_offset(beat[:PIECE_SAMPLES])
         vocals = shift(vocals, offset)
-    vocals = smart_cut(vocals)
+    vocals, sung, times = cut_chunk(vocals, len(lines))
+    sung_lines = lines[:sung]
 
     if section == "Verse":
-        recent_lines = (recent_lines + keep)[-12:]
+        word_here = None
+        for q in story["queue"][:sung]:
+            if q["word"]:
+                word_here = q["word"]
+        del story["queue"][:sung]                  # anything not sung stays at the front for the next chunk
+        story["since_hook"] += 1
+    else:
+        word_here = None
+        story["since_hook"] = 0
+
     total = time.time() - start
     gen_times.append(total)
     if len(gen_times) > 5:
         gen_times.pop(0)
-
-    print("   (made next piece: lyrics %.1fs + music %.1fs + vocals %.1fs)" %
-          (t_lyrics, t_music, total - t_lyrics - t_music))
-    ui["timing"] = "Last verse took %.0f s to make" % total
-    write_log("piece %s word=%s lyrics=%.1fs music=%.1fs sep=%.1fs tries=%d vocal_loud=%.3f offset_ms=%d" %
-              (section, word, t_lyrics, t_music, total - t_lyrics - t_music, attempt + 1,
-               loudness(vocals), int(offset * 1000 / SAMPLE_RATE)))
-    for l in keep:
+    print("   (made next chunk: lyrics %.1fs + music %.1fs + vocals %.1fs, %d of %d lines sung)" %
+          (t_lyrics, t_music, total - t_lyrics - t_music, sung, len(lines)))
+    ui["timing"] = "Last chunk took %.0f s to make" % total
+    write_log("chunk %s word=%s lyrics=%.1fs music=%.1fs sep=%.1fs tries=%d sung=%d/%d timed=%s offset_ms=%d" %
+              (section, word, t_lyrics, t_music, total - t_lyrics - t_music, attempt + 1, sung, len(lines),
+               "yes" if times else "no", int(offset * 1000 / SAMPLE_RATE)))
+    for l in sung_lines:
         write_log("    " + l)
 
-    piece = {"vocals": vocals, "mix": mix, "lines": keep, "word": word, "section": section, "verses": verses}
+    piece = {"vocals": vocals, "mix": mix, "lines": sung_lines, "times": times, "word": word or word_here,
+             "section": section, "verses": 0}
     if anchor is None:
         anchor = piece
     return piece
@@ -849,6 +917,7 @@ def do_reset():
         timeline.clear()
         gen_times.clear()
         hooks.clear()
+        story.update({"premise": None, "queue": [], "history": [], "since_hook": 0})
         active_style = {k: studio[k] for k in STYLE_KEYS}
         set_bpm(active_style["bpm"])
         beat_version += 1
@@ -876,7 +945,7 @@ def generator():
                 job = "word"
             elif people > 0 and topic is not None and beat_loop is not None and studio["keep_rapping"]:
                 ends = latest["start"] + latest["dur"] if latest else now
-                if ends - now < expected_gen_time() + 5:
+                if ends - now < expected_gen_time() + 3:
                     job = "filler"
         if job is None:
             time.sleep(0.1)
@@ -891,10 +960,13 @@ def generator():
                     t0 = now + 2.0                     # give browsers a moment to load the beat
                     beat_wav = to_wav(beat_loop)
                 if word:
-                    # a new word replaces any normal piece that hasn't started yet
+                    # a new word replaces any normal chunk that hasn't started yet
                     keep = []
                     for p in timeline:
-                        if p["start"] > now + 1.0 and not p["word"]:
+                        if p["start"] > now + 1.0 and not p["word"] and p is not anchor:
+                            for line in p["lines"]:        # those lines were never heard
+                                if story["history"] and story["history"][-1] == line:
+                                    story["history"].pop()
                             continue
                         keep.append(p)
                     timeline[:] = keep
@@ -908,6 +980,7 @@ def generator():
                 piece["wav"] = vocal_wav
                 del piece["vocals"]
                 timeline.append(piece)
+                story["history"] = (story["history"] + piece["lines"])[-24:]
                 timeline[:] = [p for p in timeline if p["start"] + p["dur"] > now - 60 or p is anchor]
             ui["making"] = None
         except Exception as e:
@@ -993,7 +1066,7 @@ class Handler(BaseHTTPRequestHandler):
                 pieces = []
                 for p in timeline:
                     if p["start"] + p["dur"] > now - 2:
-                        pieces.append({"id": p["id"], "start": p["start"], "dur": p["dur"],
+                        pieces.append({"id": p["id"], "start": p["start"], "dur": p["dur"], "times": p.get("times"),
                                        "lines": p["lines"], "section": p["section"], "word": p["word"]})
                 state = {
                     "now": now, "t0": t0, "bar": BAR_SECONDS, "loop": len(beat_loop) / SAMPLE_RATE if beat_loop is not None else 0,
@@ -1001,7 +1074,7 @@ class Handler(BaseHTTPRequestHandler):
                     "pieces": pieces, "queue": list(pending_words), "making": ui["making"],
                     "topic": topic, "words": ui["words"][-10:], "listeners": listening_now(),
                     "timing": ui["timing"], "host": self.is_host(),
-                    "beat_version": beat_version, "style": style_summary(active_style),
+                    "beat_version": beat_version, "style": style_summary(active_style), "story": story["premise"],
                     "reactions": [r for r in reactions if now - r["t"] < 8],
                     "keep_rapping": studio["keep_rapping"], "cooldown": studio["cooldown"],
                 }

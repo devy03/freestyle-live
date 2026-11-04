@@ -225,6 +225,8 @@
     transition: color .35s, transform .35s;
   }
   .lyr-line.sung { color: var(--sung); }
+  .lyr-line.hook { font-style: italic; }
+  .lyr-gap { height: calc(22px * var(--lyr-scale)); margin: 0; }
   .lyr-line.now { color: var(--now); transform: scale(1.02); }
   .karaoke .lyr-line.now span.fill {
     background: linear-gradient(90deg, var(--now) var(--p, 0%), var(--sung) var(--p, 0%));
@@ -974,7 +976,8 @@
     beat = { buf: null, src: null, loading: false };
     for (const item of sched.values()) { try { item.src.stop(); } catch (e) {} }
     sched.clear();
-    shownId = null; shownLine = -2;
+    shownId = null; shownLine = -2; currentWord = null;
+    $("track").innerHTML = "";
   }
   async function syncAudio() {
     const s = state;
@@ -1090,7 +1093,7 @@
   }
 
   // ---------- lyrics ----------
-  let shownId = null, shownLine = -2;
+  let shownId = null, shownLine = -2, currentWord = null;
   function renderLyrics() {
     const item = currentPiece();
     const bars = $("bars");
@@ -1099,28 +1102,46 @@
     if (!item) {
       if (shownId !== null) {
         shownId = null; shownLine = -2;
-        $("kind").textContent = "Beat break";
         bars.innerHTML = "";
         [...$("track").children].forEach((el) => { el.classList.remove("now"); el.classList.add("sung"); });
       }
       return;
     }
     const p = item.piece, bar = state.bar;
-    const into = (ctx.currentTime - item.when) / bar;
-    const lineIdx = Math.min(Math.floor(into), p.lines.length - 1);
+    // use the real start time of each sung line when the studio found them, otherwise assume one line per bar
+    const t = ctx.currentTime - item.when;
+    let lineIdx, frac;
+    if (p.times && p.times.length === p.lines.length) {
+      lineIdx = 0;
+      for (let i = 0; i < p.times.length; i++) if (t >= p.times[i] - 0.05) lineIdx = i;
+      const a = p.times[lineIdx], b = lineIdx + 1 < p.times.length ? p.times[lineIdx + 1] : item.dur;
+      frac = (t - a) / Math.max(b - a, 0.3);
+    } else {
+      const into = t / bar;
+      lineIdx = Math.min(Math.floor(into), p.lines.length - 1);
+      frac = into - lineIdx;
+    }
     if (p.id !== shownId) {
+      // one continuous song: add this chunk's lines under the ones already sung
       shownId = p.id; shownLine = -2;
       const word = p.word || state.topic;
-      root.style.setProperty("--verse", colorFor(word));
-      $("kind").textContent = (p.section === "Chorus" ? "Hook: " : "Verse: ") + (word || "");
-      $("track").innerHTML = p.lines.map((l, i) => `<p class="lyr-line enter" style="--i:${i}">${markWord(l, word)}</p>`).join("");
+      if (p.word) { currentWord = p.word; root.style.setProperty("--verse", colorFor(p.word)); }
+      else if (!currentWord) { currentWord = word; root.style.setProperty("--verse", colorFor(word)); }
+      $("kind").textContent = (p.section === "Chorus" ? "Hook: " : "Story: ") + (currentWord || "");
+      const track = $("track");
+      track.querySelectorAll(".lyr-empty").forEach((el) => el.remove());
+      track.querySelectorAll(".lyr-line").forEach((el) => { el.classList.remove("now", "enter"); el.classList.add("sung"); });
+      if (p.section === "Chorus" || p.word) track.insertAdjacentHTML("beforeend", '<p class="lyr-gap" aria-hidden="true"></p>');
+      track.insertAdjacentHTML("beforeend", p.lines.map((l, i) =>
+        `<p class="lyr-line enter${p.section === "Chorus" ? " hook" : ""}" data-chunk="${p.id}" style="--i:${i}">${markWord(l, currentWord)}</p>`).join(""));
+      while (track.querySelectorAll(".lyr-line").length > 20) track.firstElementChild.remove();
       bars.innerHTML = p.lines.map(() => "<i></i>").join("");
       if (p.word && myWords.has(p.word.toLowerCase())) toast(`You're on: “${p.word}”`);
     }
-    const els = $("track").querySelectorAll(".lyr-line");
+    const els = $("track").querySelectorAll(`.lyr-line[data-chunk="${p.id}"]`);
     if (lineIdx !== shownLine) {
       shownLine = lineIdx;
-      els.forEach((el, i) => { el.classList.toggle("now", i === lineIdx); el.classList.toggle("sung", i < lineIdx); });
+      els.forEach((el, i) => { el.classList.toggle("now", i === lineIdx); el.classList.toggle("sung", i < lineIdx); el.classList.remove("enter"); });
       bars.querySelectorAll("i").forEach((el, i) => {
         el.classList.toggle("on", i <= lineIdx);
         el.classList.toggle("pulse", i === lineIdx);
@@ -1130,7 +1151,7 @@
     }
     const active = els[lineIdx];
     if (active && settings.karaoke === "sweep") {
-      const frac = Math.min(Math.max(into - lineIdx, 0), 1);
+      frac = Math.min(Math.max(frac, 0), 1);
       active.style.setProperty("--p", (frac * 108).toFixed(1) + "%");
     }
   }
