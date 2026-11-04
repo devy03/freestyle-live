@@ -373,11 +373,26 @@ EXAMPLE_HOOK = [
 STYLE_EXAMPLE = EXAMPLE_VERSE + EXAMPLE_HOOK
 
 
-def clean_lines(lines):
+LATIN_LANGS = ("en", "es", "fr", "pt", "de")
+
+
+def right_script(line):
+    # drop lines written in the wrong language's script (e.g. Hindi lines in an English song)
+    letters = [ch for ch in line if ch.isalpha()]
+    if not letters:
+        return False
+    latin = sum(1 for ch in letters if ord(ch) < 0x250)
+    share = latin / len(letters)
+    if studio["language"] in LATIN_LANGS:
+        return share > 0.8
+    return share < 0.5
+
+
+def clean_lines(lines, dedupe=True):
     kept = []
     for line in lines:
-        low = line.lower()
-        bad = False
+        low = line.lower().replace("\u2019", "'").replace("\u2018", "'")
+        bad = not right_script(line)
         for phrase in BANNED:
             if phrase in low and phrase not in str(topic).lower():
                 bad = True
@@ -386,14 +401,15 @@ def clean_lines(lines):
                 bad = True
         if not bad:
             kept.append(line)
-    return remove_repeats(kept)
+    return remove_repeats(kept) if dedupe else kept
 
 
 def language_rule():
     if studio["language"] == "en":
-        return ""
-    return ("Write every bar in " + LANGUAGES[studio["language"]] + ", in its native script (no romanization). "
-            "If the topic word is in another language, you may keep it as written.\n")
+        return ("- Write every bar in English, even if the topic word is from another language "
+                "(keep that word as it is and explain it with English bars).\n")
+    return ("- Write every bar in " + LANGUAGES[studio["language"]] + ", in its native script (no romanization), "
+            "and never switch to English. If the topic word is in another language, keep it as written.\n")
 
 
 WRITER_RULES = (
@@ -498,17 +514,23 @@ def get_hook(about):
             "- 6 to 9 syllables per line, simple words, easy to chant back.\n"
             "Example (about rent):\n" + "\n".join(EXAMPLE_HOOK) + "\n"
             "Never reuse the example. Output ONLY the 4 lines.")
-    lines = []
+    best = []
     for attempt in range(3):
-        lines = clean_lines(to_lines(llm(system_prompt(), user)))[:4]
-        if len(lines) == 4 and sum(1 for l in lines if str(about).lower() in l.lower()) >= 2:
+        lines = clean_lines(to_lines(llm(system_prompt(), user)), dedupe=False)[:4]
+        mentions = sum(1 for l in lines if str(about).lower() in l.lower())
+        if len(lines) == 4 and mentions >= 2:
+            best = lines
             break
-    fallback = [str(about) + " on my mind tonight", "Every time I say it, it comes out right",
-                str(about) + " on my mind tonight", "Turn it up loud and hold it tight"]
-    while len(lines) < 4:
-        lines.append(fallback[len(lines)])
-    hooks[key] = lines
-    return lines
+        if len(lines) > len(best):
+            best = lines
+    if len(best) == 0:
+        best = [str(about) + ", " + str(about)]
+    if len(best) < 4:
+        # repeat what we have in the usual hook order (A B A B) instead of padding with filler
+        base = best[:2] if len(best) >= 2 else best * 2
+        best = (base + base)[:4]
+    hooks[key] = best
+    return best
 
 
 # ======================= VOCAL SEPARATION (Demucs) =======================
