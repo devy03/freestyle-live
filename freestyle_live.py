@@ -300,7 +300,7 @@ def llm(system, user, temperature=None, max_tokens=400):
         "stream": False,
         "keep_alive": "1h",
         "options": {"num_gpu": LYRIC_GPU_LAYERS, "temperature": temperature, "top_p": 0.9,
-                    "repeat_penalty": 1.1, "num_predict": max_tokens, "num_ctx": 4096},
+                    "repeat_penalty": 1.1, "num_predict": max_tokens, "num_ctx": 2048},
     }
     if "qwen3" in model:
         body["think"] = False
@@ -818,6 +818,13 @@ def generator():
             ui["making"] = None
             print("   [error]", e)
             write_log("ERROR " + str(e))
+            if "music engine" in str(e):
+                # the GPU is too full for the music engine: free the lyric model's memory so it can catch up
+                try:
+                    requests.post(OLLAMA_URL, json={"model": studio["model"], "keep_alive": 0}, timeout=20)
+                    print("   (freed the lyric model's GPU memory so the music engine can finish)")
+                except Exception:
+                    pass
             if word is not None:
                 with lock:
                     pending_words.insert(0, word)
