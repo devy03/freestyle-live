@@ -371,10 +371,42 @@ EXAMPLE_HOOK = [
     "First of the month, I ain't scared of it",
     "Every bill paid and I'm proud of it",
 ]
-STYLE_EXAMPLE = EXAMPLE_VERSE + EXAMPLE_HOOK
+HINDI_EXAMPLE_VERSE = [
+    "Subah ki chai, adrak wali, garam garam",
+    "Pehle ghoont mein hi mit gaye saare gham",
+    "Maa kehti thodi cheeni, main kehta zyada",
+    "Meetha bolna seekha, wahi mera iraada",
+    "Tapri pe dost, kulhad mein kahaani",
+    "Do rupaye ki chai, par yaadein purani",
+    "Log peete coffee, karte badi badi baat",
+    "Humne chai pe suljhaye saare halaat",
+]
+HINDI_EXAMPLE_HOOK = [
+    "Ek cup chai, aur sab theek hai",
+    "Thakaan ho kitni, phir bhi jeet hai",
+    "Ek cup chai, bas itna chahiye",
+    "Baaki sab baad mein, pehle chai pilaiye",
+]
+STYLE_EXAMPLE = EXAMPLE_VERSE + EXAMPLE_HOOK + HINDI_EXAMPLE_VERSE + HINDI_EXAMPLE_HOOK
 
 
 LATIN_LANGS = ("en", "es", "fr", "pt", "de", "hi-latn")
+
+
+HINDI_WORDS = set("""hai hain ho hoon hu tha thi mein main mera meri mere tera teri tere tu tum aap hum humne
+ka ki ke ko se ne pe par aur bhi nahi nahin na kya kyun kyon jo woh yeh ye wo ab jab tab phir sab kuch dil raat din
+pyaar pyar yaar jaan duniya zindagi baat apna apni apne kar karo karte karta karti raha rahi rahe gaya gayi gaye
+hua hui kahan yahan wahan mujhe tujhe usko unko bas toh hi koi kabhi sapne sapna wala wali wale ek do teen
+chal chalo aaja jaana jaane dekh dekho bol bolo sun suno lagta lagti laga tujhse mujhse unse isse""".split())
+ENGLISH_WORDS = set("""the and you your my is are was were i me we they it of in on with that this for but not be
+have has had just all so what when where how can don't i'm it's you're can't won't""".split())
+
+
+def is_roman_hindi(line):
+    words = re.findall(r"[a-z']+", line.lower().replace("\u2019", "'"))
+    hindi = sum(1 for w in words if w in HINDI_WORDS)
+    english = sum(1 for w in words if w in ENGLISH_WORDS)
+    return hindi >= 1 and hindi >= 2 * english + 1
 
 
 def right_script(line):
@@ -384,16 +416,18 @@ def right_script(line):
         return False
     latin = sum(1 for ch in letters if ord(ch) < 0x250)
     share = latin / len(letters)
+    if studio["language"] == "hi-latn":
+        return share > 0.8 and is_roman_hindi(line)
     if studio["language"] in LATIN_LANGS:
         return share > 0.8
     return share < 0.5
 
 
-def clean_lines(lines, dedupe=True):
+def clean_lines(lines, dedupe=True, check_script=True):
     kept = []
     for line in lines:
         low = line.lower().replace("\u2019", "'").replace("\u2018", "'")
-        bad = not right_script(line)
+        bad = check_script and not right_script(line)
         for phrase in BANNED:
             if phrase in low and phrase not in str(topic).lower():
                 bad = True
@@ -438,11 +472,15 @@ WRITER_RULES = (
     "- Never write filler like 'yeah', 'let it ring', 'feel the vibe', or 'can't be beat'.\n"
     "- Keep it fit for a public stream: no slurs, no hate, no sexual content.\n"
     "{language}"
-    "Here is the level you aim for. This verse is about laundry - notice that every line is about the topic, "
-    "it's easy to follow, and the wordplay (sort friends, poker hand, clean name) is the point:\n"
-    + "\n".join(EXAMPLE_VERSE) + "\n"
+    "{example}"
     "Never reuse those lines."
 )
+EXAMPLE_TEXT_EN = ("Here is the level you aim for. This verse is about laundry - notice that every line is about the topic, "
+                   "it's easy to follow, and the wordplay (sort friends, poker hand, clean name) is the point:\n"
+                   + "\n".join(EXAMPLE_VERSE) + "\n")
+EXAMPLE_TEXT_HI = ("Here is the level and the exact writing style you aim for: Hindi in English letters. This verse is about "
+                   "chai - every line is about the topic, easy to follow, and it rhymes in pairs (garam/gham, zyada/iraada, "
+                   "baat/halaat):\n" + "\n".join(HINDI_EXAMPLE_VERSE) + "\n")
 used_angles = []
 
 
@@ -475,7 +513,8 @@ def plan_verse(subject, fresh):
 
 
 def system_prompt():
-    return WRITER_RULES.format(persona=persona(), rhyme=RHYMES[studio["rhyme"]], language=language_rule())
+    example = EXAMPLE_TEXT_HI if studio["language"] == "hi-latn" else EXAMPLE_TEXT_EN
+    return WRITER_RULES.format(persona=persona(), rhyme=RHYMES[studio["rhyme"]], language=language_rule(), example=example)
 
 
 SCRIPTS = {"hi": "Hindi in Devanagari script", "ja": "Japanese (kana and kanji)", "ko": "Korean in Hangul",
@@ -511,14 +550,20 @@ def write_verse(word):
             + language_task())
 
     best = []
+    last_raw = []
     for attempt in range(3):
-        lines = clean_lines(to_lines(llm(system_prompt(), user)))
+        raw = to_lines(llm(system_prompt(), user))
+        last_raw = raw
+        lines = clean_lines(raw)
         has_word = (not word) or any(word.lower() in l.lower() for l in lines[:BARS_PER_PIECE])
         if len(lines) >= BARS_PER_PIECE and has_word:
             best = lines
             break
         if len(lines) > len(best) and (has_word or not best):
             best = lines
+    if len(best) < 4:
+        # the model kept writing the wrong language; better a verse than silence
+        best = clean_lines(last_raw, check_script=False)
     for extra_try in range(2):
         if len(best) >= TOTAL_LINES:
             break
@@ -540,7 +585,8 @@ def get_hook(about):
             "- Line 3 repeats the title phrase (or a small variation).\n"
             "- Line 4 is the punchline people remember.\n"
             "- 6 to 9 syllables per line, simple words, easy to chant back.\n"
-            "Example (about rent):\n" + "\n".join(EXAMPLE_HOOK) + "\n"
+            + ("Example (about chai):\n" + "\n".join(HINDI_EXAMPLE_HOOK) if studio["language"] == "hi-latn"
+               else "Example (about rent):\n" + "\n".join(EXAMPLE_HOOK)) + "\n"
             "Never reuse the example. Output ONLY the 4 lines." + language_task())
     best = []
     for attempt in range(3):
