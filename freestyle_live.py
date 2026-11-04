@@ -465,6 +465,18 @@ def system_prompt():
     return WRITER_RULES.format(persona=persona(), rhyme=RHYMES[studio["rhyme"]], language=language_rule())
 
 
+SCRIPTS = {"hi": "Hindi in Devanagari script", "ja": "Japanese (kana and kanji)", "ko": "Korean in Hangul",
+           "zh": "Mandarin Chinese in Chinese characters", "es": "Spanish", "fr": "French", "pt": "Portuguese", "de": "German"}
+
+
+def language_task():
+    # repeated at the end of each request, because the English examples pull small models toward English
+    lang = studio["language"]
+    if lang == "en":
+        return ""
+    return "\nWrite every line in " + SCRIPTS.get(lang, LANGUAGES[lang]) + ". Not a single line in English."
+
+
 def write_verse(word):
     n = str(TOTAL_LINES)
     subject = word or str(topic)
@@ -480,7 +492,8 @@ def write_verse(word):
     else:
         task = "Keep going on \"" + subject + "\" with " + n + " new bars from a new angle."
     user = (flow + task + "\n\nYour plan:\n" + plan +
-            "\n\nUse the plan and its punchlines. Output ONLY the " + n + " bars, one per line. No titles or notes.")
+            "\n\nUse the plan and its punchlines. Output ONLY the " + n + " bars, one per line. No titles or notes."
+            + language_task())
 
     best = []
     for attempt in range(3):
@@ -513,7 +526,7 @@ def get_hook(about):
             "- Line 4 is the punchline people remember.\n"
             "- 6 to 9 syllables per line, simple words, easy to chant back.\n"
             "Example (about rent):\n" + "\n".join(EXAMPLE_HOOK) + "\n"
-            "Never reuse the example. Output ONLY the 4 lines.")
+            "Never reuse the example. Output ONLY the 4 lines." + language_task())
     best = []
     for attempt in range(3):
         lines = clean_lines(to_lines(llm(system_prompt(), user)), dedupe=False)[:4]
