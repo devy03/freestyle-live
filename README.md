@@ -56,7 +56,7 @@ Keyboard shortcuts: <kbd>/</kbd> jumps to the word box, <kbd>M</kbd> mutes, <kbd
 2. **Get ACE-Step.** Download the [ACE-Step 1.5 Windows portable package](https://files.acemusic.ai/acemusic/win/ACE-Step-1.5.7z) (about 5 GB) and extract it into the same folder. You should end up with `C:\FreestyleLive\ACE-Step-1.5\python_embeded\python.exe`.
 3. **Install Ollama** from [ollama.com](https://ollama.com) (choose "No thanks, I'll use Ollama locally" if it asks you to sign up).
 4. **Double-click `install.bat`.** It adds Demucs to ACE-Step's Python and downloads the lyric model (`gemma3:4b`, about 3 GB).
-5. **Double-click `start_everything.bat`.** It starts the music engine, waits until it's ready, then opens the website at `http://127.0.0.1:5050`. The very first start also downloads ACE-Step's music models, so give it a few minutes.
+5. **Double-click `start_everything.bat`.** It starts the music engine, waits until it's ready, then opens the website at `http://127.0.0.1:5050`. The very first start also downloads ACE-Step's music models and the Whisper lyric checker (about 150 MB), so give it a few minutes.
 6. Click **Tune in**, type a word, and press Enter.
 
 To let other people in, double-click **`share_online.bat`** and send them the `https://….trycloudflare.com` link it prints. The link lasts until you close that window, and you get a new one each time.
@@ -113,8 +113,9 @@ flowchart LR
 2. **Music.** ACE-Step's turbo model makes each clip in about 2–4 seconds on a 4070 Ti. Every clip after the first gets the first clip as a voice reference, so the rapper and the sound stay the same. ACE-Step's own planning model is switched off to leave room on the GPU.
 3. **One beat.** Demucs splits the first clip into vocals and beat. That beat becomes the loop for the whole session.
 4. **Lining up.** For each later clip, the script compares its drum hits to the loop's and shifts the vocals so they land on time, then ends them at the quietest gap near the 8-bar mark.
-5. **The song clock.** Each verse is scheduled to start on a bar line. A new word replaces any normal verse that hasn't started yet.
-6. **Playback.** Browsers download the beat once, then each verse clip, and play them with the Web Audio API at the exact scheduled times. The visualizer and the lyric highlight read from the same audio clock, so they stay in sync with what you hear.
+5. **Checking what was sung.** Whisper listens to the vocals and only the lines it actually hears go on screen, at the moment they were sung. Lines the music model skipped go back in line for the next chunk (English; other languages fall back to counting pauses).
+6. **The song clock.** Each verse is scheduled to start on a bar line. A new word replaces any normal verse that hasn't started yet.
+7. **Playback.** Browsers download the beat once, then each verse clip, and play them with the Web Audio API at the exact scheduled times. The visualizer and the lyric highlight read from the same audio clock, so they stay in sync with what you hear.
 
 When nobody has the page open, the script stops making new verses, so your GPU isn't working for an empty room.
 
@@ -144,6 +145,7 @@ This took 17 versions in one long afternoon, from "make one clip per word" to a 
 
 - [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) for music generation (MIT)
 - [Demucs](https://github.com/adefossez/demucs) by Alexandre Défossez for vocal separation (MIT)
+- [Whisper](https://github.com/openai/whisper) (`whisper-base.en` through Hugging Face Transformers) for checking the sung lyrics (MIT)
 - [Ollama](https://ollama.com) for running the lyric model, and Google's [Gemma 3](https://ai.google.dev/gemma) (under the Gemma Terms of Use)
 - [Big Shoulders](https://github.com/xotypeco/big_shoulders), a typeface made for Chicago (SIL Open Font License)
 - [Cloudflare Tunnel](https://github.com/cloudflare/cloudflared) for the public link

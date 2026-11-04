@@ -38,6 +38,9 @@ EXTRA_BARS = 2              # 2 more lines are sung and thrown away so the song 
 LOOP_BARS = 8               # the nonstop beat loop is 8 bars, taken from the first clip
 STORY_BATCH = 8             # lines written per lyric request (two chunks' worth)
 USE_VOICE_REFERENCE = True  # keep the same rapper by referencing the first piece
+REFERENCE_BARS = 4          # only the first 4 bars of it are sent (a long reference slows every clip down)
+CHECK_LYRICS = True         # listen back with Whisper and only show lines that were really sung (English)
+ASR_MODEL = "openai/whisper-base.en"   # about 150 MB, downloads the first time
 VOCAL_VOLUME = 1.0
 BEAT_VOLUME = 0.9
 SAMPLE_RATE = 48000
@@ -333,6 +336,8 @@ def to_lines(text):
             continue
         if low.startswith("here") or "verse" in low or "chorus" in low or low.startswith("hook"):
             continue
+        if any(p in low for p in ECHOES):
+            continue   # the model repeated our instructions back as a lyric
         if len(line.split()) > 14:     # very long lines get mumbled - skip them
             continue
         lines.append(line)
@@ -351,6 +356,9 @@ def remove_repeats(lines):
             seen.append(s)
     return kept
 
+
+ECHOES = ["new word", "into the song", "into the story", "story so far", "next two bars", "next bars",
+          "topic word", "the topic", "bars that were", "punchline every", "story:"]
 
 BANNED = ["bittersweet", "plea", "lost in the", "bathed in", "just you and me", "just me and",
           "you see", "can't be beat", "cant be beat", "feel the heat", "feelin' the heat", "shining bright",
@@ -477,14 +485,13 @@ WRITER_RULES = (
     "- Keep it fit for a public stream: no slurs, no hate, no sexual content.\n"
     "{language}"
     "{example}"
-    "Never reuse those lines."
 )
 EXAMPLE_TEXT_EN = ("Here is the level you aim for. This verse is about laundry - notice that every line is about the topic, "
                    "it's easy to follow, and the wordplay (sort friends, poker hand, clean name) is the point:\n"
-                   + "\n".join(EXAMPLE_VERSE) + "\n")
+                   + "\n".join(EXAMPLE_VERSE) + "\nNever reuse those lines.\n")
 EXAMPLE_TEXT_HI = ("Here is the level and the exact writing style you aim for: Hindi in English letters. This verse is about "
                    "chai - every line is about the topic, easy to follow, and it rhymes in pairs (garam/gham, zyada/iraada, "
-                   "baat/halaat):\n" + "\n".join(HINDI_EXAMPLE_VERSE) + "\n")
+                   "baat/halaat):\n" + "\n".join(HINDI_EXAMPLE_VERSE) + "\nNever reuse those lines.\n")
 # the running story: everything is one continuous song
 story = {"premise": None, "queue": [], "history": [], "since_hook": 0}
 # queue: lines written but not sung yet, each {"text", "word"}; history: lines already scheduled to play
@@ -502,8 +509,15 @@ def parse_story(text):
     return premise, "\n".join(body)
 
 
-def system_prompt():
-    example = EXAMPLE_TEXT_HI if studio["language"] == "hi-latn" else EXAMPLE_TEXT_EN
+STORY_STYLE = ("Write like a storyteller: real people, real places, small specific details, and lines that rhyme in pairs. "
+               "Never mention laundry, detergent, socks or chai unless the story is about them.\n")
+
+
+def system_prompt(with_example=False):
+    if with_example:
+        example = EXAMPLE_TEXT_HI if studio["language"] == "hi-latn" else EXAMPLE_TEXT_EN
+    else:
+        example = STORY_STYLE
     return WRITER_RULES.format(persona=persona(), rhyme=RHYMES[studio["rhyme"]], language=language_rule(), example=example)
 
 
@@ -537,7 +551,7 @@ def write_story(new_word=None):
         user = ("The story so far: " + story["premise"] + "\n"
                 "The last bars that were rapped:\n" + sofar + "\n\n")
         if new_word:
-            user += ("Someone just threw a new word into the song: \"" + new_word + "\". "
+            user += ("New word from the crowd: \"" + new_word + "\". "
                      "Bring it into the story in the next two bars - it should change what happens or drive it, "
                      "not just get mentioned. " + WORD_USE[studio["word_use"]].replace("{w}", new_word) + "\n"
                      "If the story turns, first write a new line STORY: <one sentence>.\n")
@@ -666,8 +680,188 @@ def find_phrases(vocals):
     return phrases
 
 
-def cut_chunk(vocals, lines_given):
-    # decide where this chunk ends and how many lines actually got sung, so no line is lost
+# ======================= LISTENING BACK (Whisper) =======================
+# ACE-Step doesn't always sing every line it's given. Whisper listens to the separated vocals,
+# and only the lines it actually hears are shown. Lines it skipped go back in the queue.
+
+asr = {"pipe": None, "state": "off"}
+
+
+def load_asr():
+    if not CHECK_LYRICS:
+        return
+    asr["state"] = "loading"
+    try:
+        from transformers import pipeline
+        dtype = torch.float16 if DEVICE == "cuda" else torch.float32
+        asr["pipe"] = pipeline("automatic-speech-recognition", model=ASR_MODEL, torch_dtype=dtype,
+                               device=0 if DEVICE == "cuda" else -1,
+                               model_kwargs={"attn_implementation": "eager"})
+        hear(np.zeros((SAMPLE_RATE, 2), dtype="float32"))     # warm up, and make sure it really works
+        asr["state"] = "ready"
+        print("Lyric checker ready (" + ASR_MODEL + ")")
+    except Exception as e:
+        asr["pipe"] = None
+        asr["state"] = "failed"
+        print("(lyric checker couldn't start, using pauses between lines instead: " + str(e)[:200] + ")")
+        write_log("asr failed: " + str(e)[:300])
+    if DEVICE == "cuda":
+        torch.cuda.empty_cache()
+
+
+def asr_on():
+    return asr["state"] == "ready" and studio["language"] == "en"
+
+
+def hear(vocals):
+    # returns [(word, start, end), ...] in seconds
+    vocals = vocals[:int((BARS_PER_PIECE + 2) * BAR_SAMPLES)]    # only the part we might keep (Whisper takes 30 s max)
+    mono = torch.from_numpy(np.ascontiguousarray(vocals.mean(axis=1))).float()
+    mono = julius.resample_frac(mono, SAMPLE_RATE, 16000).numpy()
+    peak = float(np.abs(mono).max()) if len(mono) else 0.0
+    if peak > 1e-4:
+        mono = mono * (0.7 / peak)
+    out = asr["pipe"]({"raw": mono, "sampling_rate": 16000}, return_timestamps="word")
+    words = []
+    for c in out.get("chunks") or []:
+        ts = c.get("timestamp") or (None, None)
+        st, en = ts[0], ts[1]
+        if st is None:
+            continue
+        if en is None:
+            en = st + 0.3
+        for w in norm_words(c.get("text", "")):
+            words.append((w, float(st), float(en)))
+    return words
+
+
+def norm_words(text):
+    text = text.lower().replace("\u2019", "'").replace("'", "")
+    return re.findall(r"[a-z0-9]+", text)
+
+
+def same_word(a, b):
+    if a == b:
+        return True
+    if len(a) >= 4 and len(b) >= 4 and a[:4] == b[:4]:
+        return True     # sortin / sorting, gonna / gon
+    if min(len(a), len(b)) >= 3:
+        import difflib
+        return difflib.SequenceMatcher(None, a, b).ratio() >= 0.75
+    return False
+
+
+COMMON = set("""the and you your that this with from for but not are was were have has had just all what when where
+how can cant dont aint got get like they them their its into out off one now then know yeah""".split())
+
+
+def match_lines(lines, heard):
+    # lines up the lyric words with the heard words (in order), then scores each line
+    lw = []
+    for i, line in enumerate(lines):
+        for w in norm_words(line):
+            lw.append((w, i))
+    n, m = len(lw), len(heard)
+    score = np.zeros((n + 1, m + 1), dtype=np.int32)
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            best = max(score[i + 1, j], score[i, j + 1])
+            if same_word(lw[i][0], heard[j][0]):
+                best = max(best, score[i + 1, j + 1] + 1)
+            score[i, j] = best
+    pairs = []
+    i = j = 0
+    while i < n and j < m:
+        if same_word(lw[i][0], heard[j][0]) and score[i, j] == score[i + 1, j + 1] + 1:
+            pairs.append((i, j))
+            i += 1
+            j += 1
+        elif score[i + 1, j] >= score[i, j + 1]:
+            i += 1
+        else:
+            j += 1
+    # words only this line has: these prove it was this line that got sung, not its neighbour
+    owners = {}
+    for w, k in lw:
+        owners.setdefault(w, set()).add(k)
+    info = []
+    for k, line in enumerate(lines):
+        total = sum(1 for w in lw if w[1] == k)
+        mine = [i for i in range(n) if lw[i][1] == k]
+        hit_idx = [i for (i, j) in pairs if lw[i][1] == k]
+        hits = [heard[j] for (i, j) in pairs if lw[i][1] == k]
+        last_j = max([j for (i, j) in pairs if lw[i][1] == k], default=-1)
+        need = max(1, total - 1) if total <= 3 else max(2, int(np.ceil(total * 0.5)))
+        ok = total > 0 and len(hits) >= need
+        key = [i for i in mine if len(lw[i][0]) >= 3 and lw[i][0] not in COMMON and len(owners[lw[i][0]]) == 1]
+        if ok and len(key) >= 2:
+            ok = sum(1 for i in key if i in hit_idx) >= int(np.ceil(len(key) * 0.5))
+        info.append({"ok": ok, "start": hits[0][1] if hits else None, "end": hits[-1][2] if hits else None,
+                     "last": last_j, "hits": len(hits), "words": total})
+    return info
+
+
+def quiet_cut(vocals):
+    hop = 960
+    mono = vocals.mean(axis=1)
+    frames = len(mono) // hop
+    energy = np.sqrt((mono[:frames * hop].reshape(frames, hop) ** 2).mean(axis=1))
+    smooth = np.convolve(energy, np.ones(10) / 10, mode="same")
+    lo = int((BARS_PER_PIECE - 0.5) * BAR_SECONDS * SAMPLE_RATE / hop)
+    hi = min(int((BARS_PER_PIECE + 1.0) * BAR_SECONDS * SAMPLE_RATE / hop), frames - 1)
+    if hi <= lo:
+        return len(vocals) / SAMPLE_RATE
+    return (lo + int(np.argmin(smooth[lo:hi]))) * hop / SAMPLE_RATE
+
+
+def finish_cut(vocals, cut):
+    n = max(1, min(int(cut * SAMPLE_RATE), len(vocals)))
+    out = vocals[:n].copy()
+    fade = min(2400, len(out))
+    out[-fade:] = out[-fade:] * np.linspace(1, 0, fade, dtype="float32")[:, None]
+    return np.ascontiguousarray(out)
+
+
+def cut_by_hearing(vocals, lines):
+    heard = hear(vocals)
+    write_log("    heard: " + " ".join(w[0] for w in heard))
+    want = min(BARS_PER_PIECE, len(lines))
+    info = match_lines(lines, heard)
+    bar = BAR_SECONDS
+    last = -1
+    for k in range(min(len(lines), want + 1)):
+        if not info[k]["ok"]:
+            continue
+        if k < want and info[k]["end"] <= (BARS_PER_PIECE + 1.25) * bar:
+            last = k
+        elif k == want and last == want - 1 and info[k]["end"] <= (BARS_PER_PIECE + 0.25) * bar:
+            last = k
+    if last < 0:
+        return finish_cut(vocals, quiet_cut(vocals)), 0, [], None, info
+    end = info[last]["end"]
+    nxt = info[last]["last"] + 1
+    cut = end + 0.15
+    if nxt < len(heard):
+        cut = max(end + 0.02, min(cut, heard[nxt][1] - 0.03))   # never clip the start of the next word
+    shown = [lines[k] for k in range(last + 1) if info[k]["ok"]]
+    times = [round(info[k]["start"], 2) for k in range(last + 1) if info[k]["ok"]]
+    return finish_cut(vocals, cut), last + 1, shown, times, info
+
+
+def cut_chunk(vocals, lines):
+    # returns (vocals, used, shown, times, how): used = lines taken off the plan, shown = lines really sung
+    if asr_on():
+        try:
+            v, used, shown, times, info = cut_by_hearing(vocals, lines)
+            return v, used, shown, times, "heard"
+        except Exception as e:
+            write_log("asr error: " + str(e)[:300])
+    v, sung, times = cut_by_pauses(vocals, len(lines))
+    return v, sung, lines[:sung], times, "pauses"
+
+
+def cut_by_pauses(vocals, lines_given):
+    # older method: count the pauses between lines
     want = min(BARS_PER_PIECE, lines_given)
     bar = BAR_SECONDS
     phrases = find_phrases(vocals)
@@ -787,9 +981,11 @@ def make_music(lyrics, seed, bars):
     }
     files = None
     if USE_VOICE_REFERENCE and anchor is not None:
-        buf = io.BytesIO()
-        sf.write(buf, anchor["mix"], SAMPLE_RATE, format="WAV", subtype="PCM_16")
-        files = {"ref_audio": ("reference.wav", buf.getvalue(), "audio/wav")}
+        if "ref_wav" not in anchor:
+            buf = io.BytesIO()
+            sf.write(buf, anchor["mix"][:REFERENCE_BARS * BAR_SAMPLES], SAMPLE_RATE, format="WAV", subtype="PCM_16")
+            anchor["ref_wav"] = buf.getvalue()
+        files = {"ref_audio": ("reference.wav", anchor["ref_wav"], "audio/wav")}
     task = requests.post(ACE_URL + "/release_task", data=fields, files=files, timeout=60).json()
     audio, sr = wait_for_result(task["data"]["task_id"])
     return fit(audio, sr, bars * BAR_SAMPLES)
@@ -830,23 +1026,32 @@ def build_piece(previous, word):
         bars = max(bars, LOOP_BARS + EXTRA_BARS)
     lyrics = ("[Chorus]\n" if section == "Chorus" else "[Verse]\n") + "\n".join(lines + extra)
     seed = SEED
+    deaf_retries = 0
+    t_music = 0.0
     for attempt in range(3):
+        t_a = time.time()
         mix = make_music(lyrics, seed, bars)
-        t_music = time.time() - start - t_lyrics
+        t_music += time.time() - t_a
         vocals, beat = separate(mix)
-        if loudness(vocals) > 0.02:
+        if loudness(vocals) <= 0.02 and attempt < 2:
+            print("   (vocals came out quiet, retrying...)")
+            seed = seed + 1
+            continue
+        offset = 0
+        if first:
+            beat_loop = beat[:LOOP_SAMPLES]       # the first clip's beat becomes the nonstop 8-bar loop
+        else:
+            offset = find_offset(beat[:PIECE_SAMPLES])
+            vocals = shift(vocals, offset)
+        cut_vocals, used, sung_lines, times, how = cut_chunk(vocals, lines)
+        if sung_lines or how != "heard" or deaf_retries >= 1 or attempt >= 2:
             break
-        print("   (vocals came out quiet, retrying...)")
+        print("   (couldn't make out the lyrics, trying again...)")
+        write_log("    (nothing recognisable was sung, retrying)")
+        deaf_retries += 1
         seed = seed + 1
-
-    offset = 0
-    if first:
-        beat_loop = beat[:LOOP_SAMPLES]           # the first clip's beat becomes the nonstop 8-bar loop
-    else:
-        offset = find_offset(beat[:PIECE_SAMPLES])
-        vocals = shift(vocals, offset)
-    vocals, sung, times = cut_chunk(vocals, len(lines))
-    sung_lines = lines[:sung]
+    vocals = cut_vocals
+    sung = used
 
     if section == "Verse":
         word_here = None
@@ -864,11 +1069,11 @@ def build_piece(previous, word):
     if len(gen_times) > 5:
         gen_times.pop(0)
     print("   (made next chunk: lyrics %.1fs + music %.1fs + vocals %.1fs, %d of %d lines sung)" %
-          (t_lyrics, t_music, total - t_lyrics - t_music, sung, len(lines)))
+          (t_lyrics, t_music, total - t_lyrics - t_music, len(sung_lines), len(lines)))
     ui["timing"] = "Last chunk took %.0f s to make" % total
-    write_log("chunk %s word=%s lyrics=%.1fs music=%.1fs sep=%.1fs tries=%d sung=%d/%d timed=%s offset_ms=%d" %
-              (section, word, t_lyrics, t_music, total - t_lyrics - t_music, attempt + 1, sung, len(lines),
-               "yes" if times else "no", int(offset * 1000 / SAMPLE_RATE)))
+    write_log("chunk %s word=%s lyrics=%.1fs music=%.1fs sep=%.1fs tries=%d sung=%d used=%d/%d check=%s timed=%s offset_ms=%d" %
+              (section, word, t_lyrics, t_music, total - t_lyrics - t_music, attempt + 1, len(sung_lines), sung,
+               len(lines), how, "yes" if times else "no", int(offset * 1000 / SAMPLE_RATE)))
     for l in sung_lines:
         write_log("    " + l)
 
@@ -1209,6 +1414,9 @@ if not os.path.exists(BLOCKED_FILE):
         f.write("# One word or phrase per line. Any submitted word containing one of these is rejected.\n")
 
 server = ThreadingHTTPServer(("127.0.0.1", UI_PORT), Handler)
+if CHECK_LYRICS:
+    print("Loading the lyric checker (first time downloads ~150MB)...")
+    load_asr()
 threading.Thread(target=generator, daemon=True).start()
 url = "http://127.0.0.1:" + str(UI_PORT)
 print("Website running at " + url)

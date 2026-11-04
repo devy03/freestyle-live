@@ -167,6 +167,17 @@ Renamed the project to **Freestyle AI** and made the site feel more alive.
 - **One continuous story.** The song keeps a running story (who it's about and what's happening). Lines are written 8 at a time, continuing straight on from the last bar, and a new word gets woven into the story within the next two bars instead of starting a new verse.
 - The lyrics panel scrolls through the whole song instead of replacing the text every verse.
 
+## v22: Listening back to what was actually sung
+
+**Problem.** Lines still showed up on screen that the rapper never sang. Counting the pauses in the vocals wasn't reliable: a breath in the middle of a line looked like two lines, and when ACE-Step skipped a line outright, the count still came out right, so the wrong lines were shown. The log also showed two prompt problems: the laundry example verse leaking into unrelated stories ("sorting laundry, whites from the colors", "detergent"), and the model rapping the instructions back ("Someone just threw a new word into the song: midterms").
+
+**Fix.**
+- **Whisper listens to every chunk.** After Demucs splits the vocals, Whisper (`whisper-base.en`, about 150 MB on the GPU) transcribes them with a time for each word. Those words are lined up with the lyric lines in order, and a line only counts as sung when enough of its own words (the ones no neighbouring line shares) were heard.
+- The chunk is cut right after the last line that was really sung, without clipping the next word. Only heard lines are shown, at the times they were heard. Lines that come after the cut go back in the queue, and if nothing recognisable was sung, the chunk is made again with a new seed.
+- English only for now. Other languages still count the pauses, and so does English if Whisper can't load.
+- **Faster clips.** Only the first 4 bars of the first clip are sent as the voice reference, instead of the whole 27-second clip.
+- Story mode no longer shows the model an example verse, the new-word prompt is reworded, and lines that echo the instructions are filtered out.
+
 ## What I'd try next
 
 - Run on a bigger GPU (Qwen3 8B or larger for lyrics, ACE-Step XL for sound) through UIC's research cluster or a free notebook GPU, to see how much better it gets
