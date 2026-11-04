@@ -1,6 +1,6 @@
 # Earlier versions
 
-Every version of the script, oldest first. They're kept to show how the project got here; for actually running it, use `freestyle_live.py` in the main folder. The story of each one is in [docs/ITERATIONS.md](../docs/ITERATIONS.md).
+Every version of the script, oldest first. The current version (v18) is `freestyle_live.py` and `ui.html` in the main folder. They're kept to show how the project got here; for actually running it, use `freestyle_live.py` in the main folder. The story of each one is in [docs/ITERATIONS.md](../docs/ITERATIONS.md).
 
 | File | What changed |
 |---|---|
@@ -16,5 +16,7 @@ Every version of the script, oldest first. They're kept to show how the project 
 | `v12_qwen3_experiments.py` | Qwen3 lyric models and GPU-layer tuning |
 | `v14_first_web_ui.py` | First browser interface (pairs with `ui_v13_local_player.html`; audio on the host's speakers) |
 | `v15_vram_fixes.py` | Unloading stale models, filtering planning notes, back to Gemma |
+| `v16_website.py` + `ui_v16_website.html` | The website: music plays in each browser on a shared clock, word queue, public link |
+| `v17_freestyle_ai.py` + `ui_v17_themes_settings.html` | Renamed to Freestyle AI; themes, viewer settings, and a more reactive page |
 
 The comment at the top of some later files still says "v10"; the file names are the accurate version numbers. Versions 2, 3, 11, and 13 were edited in place and not saved separately.

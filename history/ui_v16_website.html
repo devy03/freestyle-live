@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Freestyle Live</title>
+<meta name="description" content="An AI rapper performing live. Give it a word and hear a verse about it, on the beat, a few seconds later.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231E1626'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23FFB547'/%3E%3C/svg%3E">
+<style>
+  @font-face { font-family: "Big Shoulders Display"; src: url("/fonts/BigShouldersDisplay.ttf") format("truetype"); font-weight: 100 900; font-display: swap; }
+  @font-face { font-family: "Big Shoulders Text"; src: url("/fonts/BigShouldersText.ttf") format("truetype"); font-weight: 100 900; font-display: swap; }
+  :root {
+    --night: #1E1626;      /* aubergine studio dark */
+    --booth: #2A2033;      /* raised surfaces */
+    --line: #3A2E45;       /* hairlines and quiet borders */
+    --paper: #F3EAD9;      /* flyer cream, main text */
+    --dim: #B5A9BE;        /* secondary text */
+    --signal: #FFB547;     /* on-air amber */
+    --verse: #7C3AED;      /* lyrics block, changes per word */
+    --display: "Big Shoulders Display", "Arial Narrow", "Roboto Condensed", sans-serif;
+    --text: "Big Shoulders Text", "Arial Narrow", "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--night);
+    color: var(--paper);
+    font: 500 18px/1.45 var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--signal); outline-offset: 3px; border-radius: 6px; }
+
+  .app {
+    height: 100vh; height: 100dvh;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 38vw);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "head lyrics" "stage lyrics" "lane lane";
+  }
+
+  /* ---------- header ---------- */
+  header {
+    grid-area: head;
+    display: flex; align-items: center; gap: 18px;
+    padding: 22px clamp(16px, 4vw, 48px);
+  }
+  .mark {
+    font: 900 30px/1 var(--display);
+    letter-spacing: 0.01em;
+    margin: 0;
+  }
+  .onair {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-weight: 600; font-size: 16px; color: var(--dim);
+  }
+  .bulb {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--line);
+    transition: background .3s, box-shadow .3s;
+  }
+  .onair.live { color: var(--paper); }
+  .onair.live .bulb { background: var(--signal); box-shadow: 0 0 0 4px rgba(255,181,71,.18), 0 0 16px rgba(255,181,71,.65); }
+  .grow { flex: 1; }
+  .people { color: var(--dim); font-size: 16px; }
+  .host-btn {
+    background: none; border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 14px; font-size: 15px; font-weight: 600; color: var(--dim); cursor: pointer;
+  }
+  .host-btn:hover { color: var(--paper); border-color: var(--dim); }
+
+  /* ---------- stage (the word box) ---------- */
+  .stage {
+    grid-area: stage;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 12px clamp(16px, 4vw, 48px) 32px;
+    max-width: 860px; min-height: 0; overflow: auto;
+  }
+  .pitch {
+    font: 800 clamp(44px, 6.4vw, 96px)/0.95 var(--display);
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  .sub { color: var(--dim); max-width: 46ch; margin: 0 0 30px; font-size: 19px; }
+  .tune {
+    align-self: flex-start;
+    display: inline-flex; align-items: center; gap: 12px;
+    background: var(--signal); color: var(--night);
+    border: none; border-radius: 999px; padding: 16px 28px 16px 22px;
+    font: 800 24px/1 var(--display); cursor: pointer;
+    transition: transform .15s;
+  }
+  .tune:hover { transform: translateY(-1px); }
+  .tune svg { width: 22px; height: 22px; }
+
+  form.drop { display: none; }
+  .joined form.drop { display: block; }
+  .joined .pitch, .joined .sub { display: none; }
+  .joined .tune { display: none; }
+  .field {
+    display: flex; align-items: flex-end; gap: 16px;
+    border-bottom: 3px solid var(--line);
+    transition: border-color .2s;
+  }
+  .field:focus-within { border-color: var(--signal); }
+  #word {
+    flex: 1; min-width: 0;
+    background: transparent; border: none; outline: none;
+    font: 800 clamp(48px, 6.6vw, 100px)/1.05 var(--display);
+    padding: 0 0 6px;
+    caret-color: var(--signal);
+  }
+  #word::placeholder { color: #5D4F69; }
+  .send {
+    flex: none; margin-bottom: 14px;
+    background: var(--signal); color: var(--night); border: none; border-radius: 999px;
+    padding: 12px 22px; font: 800 22px/1 var(--display); cursor: pointer;
+  }
+  .send:disabled { background: var(--line); color: var(--dim); cursor: default; }
+  .ask { display: block; font: 700 clamp(24px, 2.4vw, 30px)/1.1 var(--display); color: var(--dim); margin: 0 0 6px; }
+  .note { min-height: 28px; margin: 12px 0 0; color: var(--dim); font-size: 17px; }
+  .note.err { color: #FF9C8A; }
+
+  .now { margin-top: 34px; }
+  .now-line { font: 700 clamp(26px, 2.6vw, 34px)/1.15 var(--display); margin: 0; }
+  .now-line b { color: var(--signal); font-weight: 800; }
+  .queue { margin: 8px 0 0; color: var(--dim); font-size: 18px; min-height: 26px; }
+  .queue span { color: var(--paper); font-weight: 600; }
+  .recent { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .recent:empty { display: none; }
+  .chip {
+    border: 1px solid var(--line); background: transparent; border-radius: 999px;
+    padding: 5px 14px; font-size: 16px; font-weight: 600; color: var(--dim); cursor: pointer;
+  }
+  .chip:hover { border-color: var(--dim); color: var(--paper); }
+
+  /* ---------- lyrics ---------- */
+  .lyrics {
+    grid-area: lyrics;
+    margin: 16px 16px 0 0;
+    border-radius: 22px 22px 0 0;
+    background: var(--verse);
+    transition: background-color 1.2s ease;
+    display: flex; flex-direction: column;
+    overflow: hidden; min-height: 0;
+  }
+  .lyr-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 24px 30px 10px; }
+  .lyr-kind { font: 800 22px/1 var(--display); margin: 0; }
+  .bars { display: flex; gap: 4px; }
+  .bars i { width: 14px; height: 6px; border-radius: 3px; background: rgba(0,0,0,.25); }
+  .bars i.on { background: rgba(255,255,255,.9); }
+  .lyr-view {
+    flex: 1; min-height: 0; overflow: hidden; position: relative;
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 9%, #000 80%, transparent 100%);
+            mask-image: linear-gradient(180deg, transparent 0, #000 9%, #000 80%, transparent 100%);
+  }
+  .lyr-track { padding: 28px 30px 45vh; transition: transform .6s cubic-bezier(.2,.75,.2,1); }
+  .lyr-line {
+    font: 800 clamp(28px, 2.7vw, 42px)/1.12 var(--display);
+    margin: 0 0 18px;
+    color: rgba(0,0,0,.42);
+    transition: color .35s;
+  }
+  .lyr-line.sung { color: rgba(255,255,255,.62); }
+  .lyr-line.now { color: #fff; }
+  .lyr-line mark { background: none; color: inherit; text-decoration: underline; text-decoration-thickness: 4px; text-underline-offset: 7px; text-decoration-color: rgba(255,255,255,.55); }
+  .lyr-empty { font: 700 30px/1.15 var(--display); color: rgba(255,255,255,.8); margin: 0; max-width: 18ch; }
+
+  /* ---------- tape lane ---------- */
+  .lane {
+    grid-area: lane;
+    display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 18px;
+    padding: 14px clamp(16px, 4vw, 48px) 18px;
+    background: #171120;
+    border-top: 1px solid var(--line);
+  }
+  .controls { display: flex; align-items: center; gap: 12px; }
+  .mute {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--booth); border: 1px solid var(--line); cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .mute svg { width: 20px; height: 20px; }
+  input[type=range] { width: 120px; accent-color: var(--signal); }
+  .tape { position: relative; height: 92px; margin-top: 18px; }
+  canvas { width: 100%; height: 100%; display: block; }
+  .legend { position: absolute; right: 0; top: -22px; display: flex; gap: 14px; font-size: 14px; color: var(--dim); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+  .banner {
+    position: fixed; left: 50%; top: 16px; transform: translateX(-50%);
+    background: #3B1F2A; color: #FFD7CC; border: 1px solid #6B3446;
+    padding: 10px 18px; border-radius: 12px; font-size: 16px; z-index: 5; display: none;
+  }
+  .banner.show { display: block; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+  @media (max-width: 900px) {
+    .app {
+      height: auto; min-height: 100vh;
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto minmax(380px, 60vh) auto;
+      grid-template-areas: "head" "stage" "lyrics" "lane";
+    }
+    header { padding: 16px; gap: 12px; flex-wrap: wrap; }
+    .stage { padding: 12px 16px 36px; }
+    .lyrics { margin: 0 16px; }
+    .lyr-top, .lyr-track { padding-left: 22px; padding-right: 22px; }
+    .lane { grid-template-columns: 1fr; padding: 12px 16px 16px; }
+    .legend { display: none; }
+    .send { padding: 10px 16px; font-size: 19px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lyr-track, .lyrics, .lyr-line, .field, .tune { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="banner" id="banner" role="status"></div>
+<div class="app" id="app">
+  <header>
+    <h1 class="mark">Freestyle Live</h1>
+    <span class="onair" id="onair"><span class="bulb"></span><span id="onairText">Off air</span></span>
+    <span class="grow"></span>
+    <span class="people" id="people"></span>
+    <button class="host-btn" id="stop" hidden>Stop the show</button>
+  </header>
+
+  <main class="stage">
+    <h2 class="pitch">Give it a word. It raps about it.</h2>
+    <p class="sub">An AI rapper writes and performs a verse about whatever you type, landing on the next bar. Everyone here hears the same song.</p>
+    <button class="tune" id="tune" type="button">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+      Tune in
+    </button>
+    <form class="drop" id="drop" autocomplete="off">
+      <label class="ask" for="word">Give it a word</label>
+      <div class="field">
+        <input id="word" maxlength="40" placeholder="type a word" enterkeyhint="send">
+        <button class="send" id="send" type="submit">Drop it</button>
+      </div>
+      <p class="note" id="note" aria-live="polite">Press Enter. It lands on the next bar.</p>
+    </form>
+    <div class="now">
+      <p class="now-line" id="nowLine">The beat starts with the first word.</p>
+      <p class="queue" id="queue"></p>
+      <div class="recent" id="recent" aria-label="Recent words"></div>
+    </div>
+  </main>
+
+  <aside class="lyrics" aria-label="Lyrics">
+    <div class="lyr-top">
+      <p class="lyr-kind" id="kind">Lyrics</p>
+      <div class="bars" id="bars" aria-hidden="true"></div>
+    </div>
+    <div class="lyr-view">
+      <div class="lyr-track" id="track">
+        <p class="lyr-empty">The verse shows up here, line by line, as it's rapped.</p>
+      </div>
+    </div>
+  </aside>
+
+  <section class="lane" aria-label="Playback">
+    <div class="controls">
+      <button class="mute" id="mute" type="button" aria-label="Mute">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path id="waves" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+      </button>
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="0.9" aria-label="Volume">
+    </div>
+    <div class="tape">
+      <div class="legend"><span><i style="background:#FFB547"></i>Vocals</span><span><i style="background:#6E5E7C"></i>Beat</span></div>
+      <canvas id="lane"></canvas>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const VERSE_COLORS = ["#7C3AED", "#C2410C", "#0E7490", "#BE185D", "#1D4ED8", "#4D7C0F", "#9333EA", "#B45309"];
+  const clientId = Math.random().toString(36).slice(2, 12);
+
+  let state = null;
+  let offset = null, bestRtt = 1e9;          // server clock = performance clock + offset
+  let ctx = null, master, beatGain, vocalGain, beatAn, vocalAn;
+  let anchorCtx = 0, anchorServer = 0;
+  let beat = { buf: null, src: null, loading: false };
+  const sched = new Map();                   // piece id -> { src, when, dur, piece }
+  const loading = new Set();
+  let failures = 0;
+
+  // ---------- helpers ----------
+  const perfNow = () => performance.now() / 1000;
+  const serverNow = () => perfNow() + (offset || 0);
+  const toCtx = (ts) => anchorCtx + (ts - anchorServer);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  function colorFor(word) {
+    if (!word) return VERSE_COLORS[0];
+    let h = 0;
+    for (const ch of word.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return VERSE_COLORS[h % VERSE_COLORS.length];
+  }
+  function markWord(line, word) {
+    let html = esc(line.replace(/\*\*/g, ""));
+    if (word) {
+      const safe = esc(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      html = html.replace(new RegExp("(" + safe + ")", "ig"), "<mark>$1</mark>");
+    }
+    return html;
+  }
+  function banner(text) {
+    $("banner").textContent = text || "";
+    $("banner").classList.toggle("show", !!text);
+  }
+  function note(text, isErr) {
+    $("note").textContent = text;
+    $("note").classList.toggle("err", !!isErr);
+  }
+
+  // ---------- volume ----------
+  let vol = 0.9, muted = false;
+  try { const v = parseFloat(localStorage.getItem("fl-vol")); if (!isNaN(v)) vol = v; } catch (e) {}
+  $("vol").value = vol;
+  function applyVol() {
+    if (master) master.gain.setTargetAtTime(muted ? 0 : vol, ctx.currentTime, 0.05);
+    $("waves").style.display = muted || vol === 0 ? "none" : "";
+    $("mute").setAttribute("aria-label", muted ? "Unmute" : "Mute");
+  }
+  $("vol").addEventListener("input", (e) => {
+    vol = parseFloat(e.target.value); muted = false; applyVol();
+    try { localStorage.setItem("fl-vol", String(vol)); } catch (err) {}
+  });
+  $("mute").addEventListener("click", () => { muted = !muted; applyVol(); });
+
+  // ---------- joining (browsers need a click before audio can play) ----------
+  function join() {
+    if (ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC({ latencyHint: "playback" });
+    master = ctx.createGain();
+    beatGain = ctx.createGain(); beatGain.gain.value = 0.9;
+    vocalGain = ctx.createGain(); vocalGain.gain.value = 1.0;
+    beatAn = ctx.createAnalyser(); beatAn.fftSize = 1024;
+    vocalAn = ctx.createAnalyser(); vocalAn.fftSize = 1024;
+    beatGain.connect(beatAn).connect(master);
+    vocalGain.connect(vocalAn).connect(master);
+    master.connect(ctx.destination);
+    anchorCtx = ctx.currentTime;
+    anchorServer = serverNow();
+    applyVol();
+    document.body.classList.add("joined");
+    $("app").classList.add("joined");
+    setTimeout(() => $("word").focus(), 50);
+    tick();
+  }
+  $("tune").addEventListener("click", join);
+
+  // ---------- sending a word ----------
+  $("drop").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const w = $("word").value.trim();
+    if (!w) return;
+    $("send").disabled = true;
+    try {
+      const r = await fetch("/api/word", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ word: w }) });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) {
+        $("word").value = "";
+        note(data.position > 1 ? `Got it. "${w}" is number ${data.position} in line.` : `Got it. Writing a verse about "${w}".`);
+        poll();
+      } else {
+        note(data.error || "That didn't go through. Try again.", true);
+      }
+    } catch (err) {
+      note("Can't reach the studio right now. Try again in a moment.", true);
+    }
+    setTimeout(() => { $("send").disabled = false; }, 600);
+  });
+  $("recent").addEventListener("click", (e) => {
+    const w = e.target.closest(".chip")?.dataset.w;
+    if (w) { $("word").value = w; $("drop").requestSubmit(); }
+  });
+  $("stop").addEventListener("click", async () => {
+    await fetch("/api/quit", { method: "POST", body: "{}" }).catch(() => {});
+    banner("The show is stopped. You can close this tab.");
+  });
+
+  // ---------- polling the studio ----------
+  async function poll() {
+    const sent = perfNow();
+    try {
+      const r = await fetch("/api/state?id=" + clientId, { cache: "no-store" });
+      const s = await r.json();
+      const got = perfNow();
+      const rtt = got - sent;
+      if (rtt < bestRtt * 1.5 || offset === null) {
+        const est = s.now - (sent + got) / 2;
+        offset = offset === null || rtt < bestRtt ? est : offset * 0.8 + est * 0.2;
+        bestRtt = Math.min(bestRtt, rtt);
+      }
+      state = s;
+      failures = 0;
+      banner("");
+      renderState();
+      if (ctx) syncAudio();
+    } catch (e) {
+      failures++;
+      if (failures >= 3) banner("Can't reach the studio. It may be offline. This page reconnects on its own.");
+    }
+  }
+  setInterval(poll, 1000);
+  poll();
+
+  // ---------- scheduling audio on the shared clock ----------
+  async function loadBuffer(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("missing");
+    return await ctx.decodeAudioData(await r.arrayBuffer());
+  }
+  async function syncAudio() {
+    const s = state;
+    if (!s || s.t0 == null) return;
+    // the beat: one loop, started in phase with everyone else
+    if (s.beat && !beat.buf && !beat.loading) {
+      beat.loading = true;
+      try { beat.buf = await loadBuffer(s.beat); } catch (e) {}
+      beat.loading = false;
+    }
+    if (beat.buf && !beat.src) {
+      const src = ctx.createBufferSource();
+      src.buffer = beat.buf; src.loop = true;
+      src.connect(beatGain);
+      const startAt = ctx.currentTime + 0.12;
+      const beatZero = toCtx(s.t0);
+      if (beatZero >= startAt) src.start(beatZero);
+      else src.start(startAt, (startAt - beatZero) % beat.buf.duration);
+      beat.src = src;
+    }
+    // verses: load and schedule each one at its bar
+    const ids = new Set(s.pieces.map((p) => p.id));
+    for (const p of s.pieces) {
+      if (sched.has(p.id) || loading.has(p.id)) continue;
+      loading.add(p.id);
+      loadBuffer("/audio/" + p.id + ".wav").then((buf) => {
+        loading.delete(p.id);
+        if (!state.pieces.some((q) => q.id === p.id)) return;   // replaced while loading
+        const when = toCtx(p.start);
+        const now = ctx.currentTime;
+        if (when + buf.duration < now + 0.1) return;            // already over
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(vocalGain);
+        if (when >= now + 0.05) src.start(when);
+        else src.start(now + 0.05, now + 0.05 - when);
+        sched.set(p.id, { src, when, dur: buf.duration, piece: p });
+      }).catch(() => loading.delete(p.id));
+    }
+    // a new word can replace a verse that hasn't started yet
+    for (const [id, item] of sched) {
+      if (!ids.has(id) && item.when > ctx.currentTime + 0.05) {
+        try { item.src.stop(); } catch (e) {}
+        sched.delete(id);
+      } else if (item.when + item.dur < ctx.currentTime - 5) {
+        sched.delete(id);
+      }
+    }
+  }
+
+  // ---------- page text from the studio state ----------
+  function currentPiece() {
+    if (!ctx) return null;
+    const now = ctx.currentTime;
+    for (const item of sched.values()) {
+      if (now >= item.when && now < item.when + item.dur) return item;
+    }
+    return null;
+  }
+  function renderState() {
+    const s = state;
+    $("people").textContent = s.listeners === 1 ? "1 listening" : `${s.listeners} listening`;
+    $("stop").hidden = !s.host;
+    const item = currentPiece();
+    const live = !!item;
+    $("onair").classList.toggle("live", live);
+    $("onairText").textContent = live ? "On air" : (s.t0 != null && ctx ? "Beat only" : "Off air");
+
+    let line;
+    if (s.t0 == null && s.making != null) line = `Writing the first verse about <b>${esc(s.making || s.topic || "")}</b>…`;
+    else if (s.t0 == null) line = "The beat starts with the first word.";
+    else if (!ctx) line = s.topic ? `Rapping about <b>${esc(s.topic)}</b> right now.` : "The beat is running.";
+    else if (item) line = `Rapping about <b>${esc(item.piece.word || s.topic || "")}</b>`;
+    else line = "Riding the beat. The next verse is on its way.";
+    $("nowLine").innerHTML = line;
+
+    const parts = [];
+    if (s.making) parts.push(`Writing about <span>${esc(s.making)}</span>`);
+    if (s.queue.length) parts.push(`Up next: ${s.queue.map((w) => `<span>${esc(w)}</span>`).join(", ")}`);
+    $("queue").innerHTML = parts.join(". ");
+
+    const seen = new Set();
+    const chips = [];
+    for (let i = s.words.length - 1; i >= 0 && chips.length < 8; i--) {
+      const w = s.words[i];
+      if (seen.has(w.toLowerCase())) continue;
+      seen.add(w.toLowerCase());
+      chips.push(`<button class="chip" type="button" data-w="${esc(w)}">${esc(w)}</button>`);
+    }
+    $("recent").innerHTML = ctx ? chips.join("") : "";
+  }
+
+  // ---------- lyrics, follow along ----------
+  let shownId = null, shownLine = -2;
+  function renderLyrics() {
+    const item = currentPiece();
+    const bars = $("bars");
+    if (!item) {
+      if (shownId !== null) {
+        shownId = null; shownLine = -2;
+        $("kind").textContent = "Beat break";
+        bars.innerHTML = "";
+        [...$("track").children].forEach((el) => el.classList.add("sung"));
+      }
+      return;
+    }
+    const p = item.piece;
+    const bar = state.bar;
+    const lineIdx = Math.min(Math.floor((ctx.currentTime - item.when) / bar), p.lines.length - 1);
+    if (p.id !== shownId) {
+      shownId = p.id; shownLine = -2;
+      document.documentElement.style.setProperty("--verse", colorFor(p.word || state.topic));
+      $("kind").textContent = p.section === "Chorus" ? `Hook: ${p.word || state.topic || ""}` : `Verse: ${p.word || state.topic || ""}`;
+      $("track").innerHTML = p.lines.map((l) => `<p class="lyr-line">${markWord(l, p.word || state.topic)}</p>`).join("");
+      bars.innerHTML = p.lines.map(() => "<i></i>").join("");
+    }
+    if (lineIdx !== shownLine) {
+      shownLine = lineIdx;
+      const els = $("track").querySelectorAll(".lyr-line");
+      els.forEach((el, i) => { el.classList.toggle("now", i === lineIdx); el.classList.toggle("sung", i < lineIdx); });
+      bars.querySelectorAll("i").forEach((el, i) => el.classList.toggle("on", i <= lineIdx));
+      const active = els[Math.max(lineIdx, 0)];
+      if (active) $("track").style.transform = `translateY(${-Math.max(active.offsetTop - $("track").parentElement.clientHeight * 0.22, 0)}px)`;
+    }
+  }
+
+  // ---------- tape lane: beat and vocals over the last few seconds ----------
+  const canvas = $("lane");
+  const g = canvas.getContext("2d");
+  const HISTORY = 360;                         // columns kept
+  const beatHist = new Float32Array(HISTORY), vocHist = new Float32Array(HISTORY);
+  let head = 0, lastCol = 0;
+  const buf = new Float32Array(1024);
+  function level(an) {
+    an.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    return Math.min(Math.sqrt(sum / buf.length) * 3.2, 1);
+  }
+  function sizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(canvas.clientWidth * dpr);
+    canvas.height = Math.round(canvas.clientHeight * dpr);
+  }
+  window.addEventListener("resize", sizeCanvas);
+  sizeCanvas();
+  const SECONDS_SHOWN = 12;
+
+  function drawLane() {
+    const w = canvas.width, h = canvas.height;
+    g.clearRect(0, 0, w, h);
+    const mid = h / 2;
+    const colW = w / HISTORY;
+    // bar lines, so you can see where verses land
+    if (ctx && state && state.t0 != null) {
+      const now = ctx.currentTime, beatZero = toCtx(state.t0), bar = state.bar;
+      g.fillStyle = "rgba(243,234,217,0.10)";
+      const first = Math.ceil((now - SECONDS_SHOWN - beatZero) / bar);
+      for (let k = first; beatZero + k * bar <= now; k++) {
+        const x = w - ((now - (beatZero + k * bar)) / SECONDS_SHOWN) * w;
+        g.fillRect(Math.round(x), 0, Math.max(1, (window.devicePixelRatio || 1)), h);
+      }
+    }
+    for (let i = 0; i < HISTORY; i++) {
+      const idx = (head + i) % HISTORY;
+      const x = i * colW;
+      const b = beatHist[idx], v = vocHist[idx];
+      const bh = Math.max(b * mid * 0.95, 1);
+      g.fillStyle = "#6E5E7C";
+      g.fillRect(x, mid - bh, Math.max(colW - 1, 1), bh * 2);
+      if (v > 0.01) {
+        const vh = v * mid * 0.95;
+        g.fillStyle = "#FFB547";
+        g.fillRect(x, mid - vh, Math.max(colW - 1, 1), vh * 2);
+      }
+    }
+  }
+
+  function tick() {
+    if (ctx) {
+      const t = ctx.currentTime;
+      const step = SECONDS_SHOWN / HISTORY;
+      if (t - lastCol >= step) {
+        const b = level(beatAn), v = level(vocalAn);
+        let n = Math.min(Math.floor((t - lastCol) / step), HISTORY);
+        if (lastCol === 0) n = 1;
+        for (let i = 0; i < n; i++) { beatHist[head] = b; vocHist[head] = v; head = (head + 1) % HISTORY; }
+        lastCol = t;
+      }
+      renderLyrics();
+      if (state) {
+        const live = !!currentPiece();
+        $("onair").classList.toggle("live", live);
+      }
+    }
+    drawLane();
+    requestAnimationFrame(tick);
+  }
+  drawLane();
+})();
+</script>
+</body>
+</html>
