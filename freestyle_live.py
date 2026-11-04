@@ -96,16 +96,16 @@ GENRES = {
 LANGUAGES = {"en": "English", "es": "Spanish", "ja": "Japanese", "zh": "Chinese (Mandarin)", "hi": "Hindi",
              "ko": "Korean", "fr": "French", "pt": "Portuguese", "de": "German"}
 TONES = {
-    "mixed": "Mix punchlines, stories, and brags.",
-    "story": "Tell a story with a beginning, a turn, and a payoff.",
-    "brag": "Confident braggadocio - clever flexes, no generic boasts.",
-    "funny": "Funny - jokes, absurd images, playful wordplay.",
-    "deep": "Reflective and heartfelt - honest, specific feelings.",
+    "mixed": "a mix of punchlines, a little story, and confident flexes",
+    "story": "a short story with a setup, a turn, and a payoff in the last two bars",
+    "brag": "clever, specific flexes - confident, never generic",
+    "funny": "jokes and playful wordplay that land on the last word of the line",
+    "deep": "honest, specific feelings, like telling a friend the truth",
 }
 RHYMES = {
     "loose": "Loose, conversational rhymes. Slant rhymes are fine.",
-    "couplets": "Rhyme in couplets (lines 1+2, 3+4, ...), with internal rhymes where they fit.",
-    "multis": "Dense multi-syllable rhymes and internal rhymes in every line, rhyming in couplets.",
+    "couplets": "Lines 1+2 rhyme, 3+4 rhyme, and so on.",
+    "multis": "Lines rhyme in pairs, using two- or three-syllable rhymes where they come naturally (\"sold 'em / hold 'em\").",
 }
 WORD_USE = {
     "subtle": "Say \"{w}\" once, where it hits hardest.",
@@ -288,20 +288,30 @@ def loudness(audio):
 
 # ======================= LYRICS (Ollama) =======================
 
-def ask_llama(prompt):
+def llm(system, user, temperature=None, max_tokens=400):
+    # one chat turn with the lyric model; returns raw text
+    model = studio["model"]
+    if temperature is None:
+        temperature = 0.85 * studio["creativity"] / 100      # 100 on the slider = 0.85
     body = {
-        "model": studio["model"],
-        "prompt": prompt + ("\n/no_think" if "qwen3" in studio["model"] else ""),
+        "model": model,
+        "messages": [{"role": "system", "content": system},
+                     {"role": "user", "content": user + ("\n/no_think" if "qwen3" in model else "")}],
         "stream": False,
         "keep_alive": "1h",
-        "options": {"num_gpu": LYRIC_GPU_LAYERS, "temperature": studio["creativity"] / 100, "top_p": 0.95, "repeat_penalty": 1.15, "num_predict": 350, "num_ctx": 2048},
+        "options": {"num_gpu": LYRIC_GPU_LAYERS, "temperature": temperature, "top_p": 0.9,
+                    "repeat_penalty": 1.1, "num_predict": max_tokens, "num_ctx": 4096},
     }
-    if "qwen3" in studio["model"]:
-        body["think"] = False      # qwen3 "thinks" out loud by default - turn that off
-    reply = requests.post(OLLAMA_URL, json=body, timeout=30)
-    text = reply.json()["response"]
-    if "</think>" in text:          # just in case thinking text sneaks through
+    if "qwen3" in model:
+        body["think"] = False
+    reply = requests.post(OLLAMA_URL.replace("/api/generate", "/api/chat"), json=body, timeout=40)
+    text = reply.json()["message"]["content"]
+    if "</think>" in text:
         text = text.split("</think>")[-1]
+    return text
+
+
+def to_lines(text):
     lines = []
     bad_starts = ("-", "*", "#", "(", "•")
     for line in text.split("\n"):
@@ -316,9 +326,9 @@ def ask_llama(prompt):
             continue   # looks like a note ("Punchline idea: ..."), not a lyric
         if "syllable" in low or "example" in low or "mental note" in low or "checks " in low:
             continue
-        if line.lower().startswith("here") or "verse" in line.lower() or "chorus" in line.lower():
+        if low.startswith("here") or "verse" in low or "chorus" in low or low.startswith("hook"):
             continue
-        if len(line.split()) > 13:     # very long lines get mumbled - skip them
+        if len(line.split()) > 14:     # very long lines get mumbled - skip them
             continue
         lines.append(line)
     return lines
@@ -344,12 +354,23 @@ BANNED = ["bittersweet", "plea", "lost in the", "bathed in", "just you and me", 
           "embrace", "divine", "remember", "grandma", "grandpa", "heart and soul", "the rhythm of",
           "a hungry beast", "delight", "so free", "eternally", "honestly", "bright and bold"]
 
-STYLE_EXAMPLE = [
-    "Alarm clock screamin' like I owe it some rent",
-    "Hit snooze twice, that's the only time I spent",
-    "Sun in my window like it's lookin' for a fight",
-    "I ain't a mornin' person, I'm a mornin'-after-night",
+EXAMPLE_VERSE = [
+    "Sunday got me sortin' whites from the colors",
+    "Same way I sort real friends from the others",
+    "Quarters in my pocket, that's the laundromat budget",
+    "Dryer ate a sock and I ain't even gon' judge it",
+    "Fold it like a poker hand, I know when to hold 'em",
+    "Fresh shirts stacked so high you'd think somebody sold 'em",
+    "Mama said separate, I took it as a lesson",
+    "Clean clothes, clean name, now that's a whole confession",
 ]
+EXAMPLE_HOOK = [
+    "First of the month, here we go again",
+    "Landlord knockin' like he's my best friend",
+    "First of the month, I ain't scared of it",
+    "Every bill paid and I'm proud of it",
+]
+STYLE_EXAMPLE = EXAMPLE_VERSE + EXAMPLE_HOOK
 
 
 def clean_lines(lines):
@@ -375,67 +396,115 @@ def language_rule():
             "If the topic word is in another language, you may keep it as written.\n")
 
 
+WRITER_RULES = (
+    "You are a sharp, witty rapper and a careful songwriter. {persona}\n"
+    "How you write:\n"
+    "- Meaning first. Every line makes sense on its own and moves the idea forward. "
+    "A plain, clever line beats a fancy confusing one.\n"
+    "- Use everyday words and concrete, real-life details. No sci-fi, no tech jargon, "
+    "no 'matrix', 'algorithm', 'cosmic' or 'interstellar' unless the topic is about that.\n"
+    "- Land a punchline every two lines: a double meaning, a twist, or a joke that pays off on the last word.\n"
+    "- {rhyme}\n"
+    "- Each line is one bar: 8 to 12 syllables.\n"
+    "- Never write filler like 'yeah', 'let it ring', 'feel the vibe', or 'can't be beat'.\n"
+    "- Keep it fit for a public stream: no slurs, no hate, no sexual content.\n"
+    "{language}"
+    "Here is the level you aim for. This verse is about laundry - notice that every line is about the topic, "
+    "it's easy to follow, and the wordplay (sort friends, poker hand, clean name) is the point:\n"
+    + "\n".join(EXAMPLE_VERSE) + "\n"
+    "Never reuse those lines."
+)
+used_angles = []
+
+
+def plan_verse(subject, fresh):
+    # step 1: decide what this verse is actually about, so the bars have a point
+    avoid = ""
+    if used_angles:
+        avoid = "Already used (pick something different): " + "; ".join(used_angles[-4:]) + "\n"
+    user = ("Topic: \"" + subject + "\"\n" + avoid +
+            "If the topic has several meanings, use the one most people would mean.\n"
+            "Plan an 8-bar rap verse that is " + TONES[studio["tone"]] + ".\n"
+            "Answer in exactly this format, short:\n"
+            "ANGLE: <one sentence: the clear idea or mini-story of the verse>\n"
+            "PUNCH 1: <a wordplay or double meaning on the topic>\n"
+            "PUNCH 2: <another one>\n"
+            "PUNCH 3: <another one>")
+    text = llm("You are a rap songwriter planning a verse. Be specific and clever.", user, temperature=0.8, max_tokens=180)
+    plan = []
+    angle = ""
+    for line in text.split("\n"):
+        line = line.strip().strip("*").strip()
+        if line.upper().startswith("ANGLE"):
+            angle = line.split(":", 1)[-1].strip()
+        if line.upper().startswith(("ANGLE", "PUNCH")) and ":" in line:
+            plan.append(line)
+    if angle:
+        used_angles.append(angle[:90])
+        del used_angles[:-8]
+    return "\n".join(plan)
+
+
+def system_prompt():
+    return WRITER_RULES.format(persona=persona(), rhyme=RHYMES[studio["rhyme"]], language=language_rule())
+
+
 def write_verse(word):
     n = str(TOTAL_LINES)
+    subject = word or str(topic)
+    plan = plan_verse(subject, bool(word))
+    flow = ""
     if recent_lines:
-        said = "Your last bars:\n" + "\n".join(recent_lines[-6:])
-    else:
-        said = "This is the first verse."
-
+        flow = ("The song so far ended with:\n" + "\n".join(recent_lines[-2:]) + "\n"
+                "Start fresh from there - don't reuse those images.\n")
     if word:
-        task = ("New topic: \"" + word + "\". Flip to it with a clever transition and write the next " + n +
-                " bars ABOUT " + word + ". " + WORD_USE[studio["word_use"]].replace("{w}", word))
+        say = WORD_USE[studio["word_use"]].replace("{w}", word)
+        task = ("New topic: \"" + word + "\". Write " + n + " bars about it. " + say +
+                " The first bar makes it obvious the topic changed.")
     else:
-        task = ("Topic: \"" + str(topic) + "\". Write the next " + n +
-                " bars - a new angle on it: a punchline, a twist, a brag, a story beat.")
+        task = "Keep going on \"" + subject + "\" with " + n + " new bars from a new angle."
+    user = (flow + task + "\n\nYour plan:\n" + plan +
+            "\n\nUse the plan and its punchlines. Output ONLY the " + n + " bars, one per line. No titles or notes.")
 
-    prompt = (
-        "You are an elite rapper writing original bars. Rap, not poetry. " + persona() + "\n\n"
-        + said + "\n\n" + task + "\n\n"
-        "What makes it hard:\n"
-        "- " + TONES[studio["tone"]] + "\n"
-        "- Punchlines, wordplay, double meanings, attitude.\n"
-        "- " + RHYMES[studio["rhyme"]] + "\n"
-        "- Concrete, surprising images - say something nobody has heard a thousand times.\n"
-        "- Talk like a confident person, not a greeting card. No flowery filler words.\n"
-        "- Short bars: 7 to 11 syllables.\n"
-        "- Don't start bars with \"Remember\", \"Used to\", \"Yo\" or \"Then\".\n"
-        "- Keep it fit for a public stream: no slurs, no hate, no sexual content.\n\n"
-        "Style example (topic: alarm clock) - copy the STYLE, never these lines:\n"
-        + "\n".join(STYLE_EXAMPLE) + "\n\n"
-        + language_rule() +
-        "Output ONLY the " + n + " bars. No title, no labels, no notes."
-    )
-
-    lines = clean_lines(ask_llama(prompt))
-    if word and not any(word.lower() in l.lower() for l in lines[:BARS_PER_PIECE]):
-        retry = clean_lines(ask_llama(prompt))
-        if any(word.lower() in l.lower() for l in retry[:BARS_PER_PIECE]):
-            lines = retry
-    tries = 0
-    while len(lines) < TOTAL_LINES and tries < 2:
-        lines = lines + clean_lines(ask_llama(prompt))
-        tries = tries + 1
-    return lines[:TOTAL_LINES]
+    best = []
+    for attempt in range(3):
+        lines = clean_lines(to_lines(llm(system_prompt(), user)))
+        has_word = (not word) or any(word.lower() in l.lower() for l in lines[:BARS_PER_PIECE])
+        if len(lines) >= BARS_PER_PIECE and has_word:
+            best = lines
+            break
+        if len(lines) > len(best) and (has_word or not best):
+            best = lines
+    for extra_try in range(2):
+        if len(best) >= TOTAL_LINES:
+            break
+        more = [l for l in clean_lines(to_lines(llm(system_prompt(), user))) if l not in best]
+        if not more:
+            break
+        best = best + more
+    return best[:TOTAL_LINES]
 
 
 def get_hook(about):
-    key = (str(about).lower(), studio["language"], studio["tone"])
+    key = (str(about).lower(), studio["language"], studio["tone"], studio["model"])
     if key in hooks:
         return hooks[key]
-    prompt = ("You write hit rap hooks. Write a 4-line hook about \"" + str(about) + "\". " + persona() + "\n"
-              "- Say \"" + str(about) + "\" at least twice.\n"
-              "- Punchy, chantable, with attitude - something a crowd would yell back.\n"
-              "- 5 to 8 syllables per line. One clever idea, not a list of adjectives.\n"
-              "- No slurs, no hate, no sexual content.\n"
-              "- Don't mention any city. No \"can't be beat\", \"feel the heat\", \"shining bright\".\n"
-              + language_rule() +
-              "Output ONLY the 4 lines. No title, no labels, no notes.")
-    lines = clean_lines(ask_llama(prompt))[:4]
-    if len(lines) < 4:
-        lines = (lines + clean_lines(ask_llama(prompt)))[:4]
-    fallback = [str(about) + " on my mind, yeah", "Say it loud: " + str(about),
-                "Can't shake " + str(about) + " tonight", "That's " + str(about) + ", all right"]
+    user = ("Write a 4-line rap hook about \"" + str(about) + "\".\n"
+            "How a great hook works:\n"
+            "- Line 1 is a short, catchy title phrase that includes \"" + str(about) + "\".\n"
+            "- Line 2 pays it off with a clever twist.\n"
+            "- Line 3 repeats the title phrase (or a small variation).\n"
+            "- Line 4 is the punchline people remember.\n"
+            "- 6 to 9 syllables per line, simple words, easy to chant back.\n"
+            "Example (about rent):\n" + "\n".join(EXAMPLE_HOOK) + "\n"
+            "Never reuse the example. Output ONLY the 4 lines.")
+    lines = []
+    for attempt in range(3):
+        lines = clean_lines(to_lines(llm(system_prompt(), user)))[:4]
+        if len(lines) == 4 and sum(1 for l in lines if str(about).lower() in l.lower()) >= 2:
+            break
+    fallback = [str(about) + " on my mind tonight", "Every time I say it, it comes out right",
+                str(about) + " on my mind tonight", "Turn it up loud and hold it tight"]
     while len(lines) < 4:
         lines.append(fallback[len(lines)])
     hooks[key] = lines
