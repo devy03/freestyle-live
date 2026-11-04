@@ -9,6 +9,7 @@ import re
 import time
 import json
 import uuid
+import unicodedata
 import threading
 import urllib.parse
 import webbrowser
@@ -92,8 +93,8 @@ GENRES = {
     "drill": ("Drill", "drill, sliding 808s, dark piano, sharp hi-hats"),
     "rnb": ("R&B", "r&b, smooth sung vocals, warm keys, laid back groove"),
 }
-LANGUAGES = {"en": "English", "es": "Spanish", "fr": "French", "pt": "Portuguese", "de": "German",
-             "hi": "Hindi", "ja": "Japanese", "ko": "Korean"}
+LANGUAGES = {"en": "English", "es": "Spanish", "ja": "Japanese", "zh": "Chinese (Mandarin)", "hi": "Hindi",
+             "ko": "Korean", "fr": "French", "pt": "Portuguese", "de": "German"}
 TONES = {
     "mixed": "Mix punchlines, stories, and brags.",
     "story": "Tell a story with a beginning, a turn, and a payoff.",
@@ -370,7 +371,8 @@ def clean_lines(lines):
 def language_rule():
     if studio["language"] == "en":
         return ""
-    return "Write every bar in " + LANGUAGES[studio["language"]] + ".\n"
+    return ("Write every bar in " + LANGUAGES[studio["language"]] + ", in its native script (no romanization). "
+            "If the topic word is in another language, you may keep it as written.\n")
 
 
 def write_verse(word):
@@ -758,7 +760,14 @@ def generator():
 UI_PORT = 5050
 UI_FILE = os.path.join(HERE, "ui.html")
 BLOCKED_FILE = os.path.join(HERE, "blocked_words.txt")
-WORD_OK = re.compile(r"^[A-Za-z0-9 '\-\.!?&]{1,40}$")
+def word_ok(w):
+    # letters from any language (and their accent marks), digits, spaces, and a little punctuation
+    if not 1 <= len(w) <= 40:
+        return False
+    for ch in w:
+        if not (ch.isalnum() or ch in " '-.!?&" or unicodedata.category(ch).startswith("M")):
+            return False
+    return True
 
 
 def blocked_words():
@@ -868,7 +877,7 @@ class Handler(BaseHTTPRequestHandler):
             data = {}
         if self.path.startswith("/api/word"):
             w = " ".join(str(data.get("word", "")).split())
-            if not WORD_OK.match(w):
+            if not word_ok(w):
                 self.send_json(400, {"error": "Use letters and numbers, up to 40 characters."})
                 return
             low = w.lower()
